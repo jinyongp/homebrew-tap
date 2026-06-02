@@ -44,16 +44,46 @@ on:
         default: "v#{version}"
     secrets:
       token:
-        required: true
+        required: false
+      deploy_key:
+        required: false
 
 jobs:
   update:
     runs-on: macos-latest
     steps:
+      - name: select credential
+        id: credential
+        run: |
+          if [ -n "$TOKEN" ] && [ -n "$DEPLOY_KEY" ]; then
+            echo "::error::Provide either token or deploy_key, not both."
+            exit 1
+          fi
+          if [ -n "$DEPLOY_KEY" ]; then
+            echo "mode=deploy_key" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -n "$TOKEN" ]; then
+            echo "mode=token" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::error::Provide token or deploy_key to publish the formula."
+          exit 1
+        env:
+          TOKEN: ${{ secrets.token }}
+          DEPLOY_KEY: ${{ secrets.deploy_key }}
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.credential.outputs.mode == 'token'
         with:
           repository: jinyongp/homebrew-tap
           token: ${{ secrets.token }}
+          path: tap
+          fetch-depth: 0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.credential.outputs.mode == 'deploy_key'
+        with:
+          repository: jinyongp/homebrew-tap
+          ssh-key: ${{ secrets.deploy_key }}
           path: tap
           fetch-depth: 0
       - name: generate formula
