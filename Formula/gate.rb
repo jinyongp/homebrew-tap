@@ -1,8 +1,8 @@
 class Gate < Formula
   desc "Local-dev global HTTPS reverse proxy and port registry"
   homepage "https://github.com/jinyongp/gate"
-  url "https://github.com/jinyongp/gate/archive/refs/tags/v1.0.0.tar.gz"
-  sha256 "07a7e41114ab646be2efd40a8437f0709bf11197f2dc6cca7ba02374f39636a6"
+  url "https://github.com/jinyongp/gate/archive/refs/tags/v1.1.1.tar.gz"
+  sha256 "bfb1d4fe9faf42b22a95374a7cfb245bd70cfdf82dbffa531650f94f7c0b8954"
   license "MIT"
 
   depends_on "go" => :build
