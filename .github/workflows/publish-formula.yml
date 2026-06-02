@@ -49,7 +49,7 @@ on:
         required: false
 
 jobs:
-  update:
+  publish:
     runs-on: macos-latest
     steps:
       - name: select credential
