@@ -1,0 +1,21 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    env:
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tap formula
+        run: brew tap jinyongp/tap "$GITHUB_WORKSPACE"
+      - name: Audit
+        run: brew audit --strict jinyongp/tap/gate
+      - name: Install
+        run: brew install --build-from-source jinyongp/tap/gate
+      - name: Test
+        run: brew test jinyongp/tap/gate
