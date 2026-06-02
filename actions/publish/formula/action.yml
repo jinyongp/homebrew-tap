@@ -1,50 +1,31 @@
 name: Publish Homebrew formula
-description: Generate a source-build Homebrew formula for a Go CLI.
+description: Render a caller-provided Homebrew formula template into this tap.
 
 inputs:
   tap-path:
     description: Path to the checked-out Homebrew tap repository.
     required: false
     default: "."
+  source-path:
+    description: Path to the checked-out source repository.
+    required: true
   formula:
     description: Formula name, for example gate.
     required: true
-  source-repository:
-    description: GitHub source repository in owner/name form.
+  repository:
+    description: GitHub repository in owner/name form.
     required: true
-  tag:
-    description: Release tag or ref to archive.
+  ref:
+    description: Git ref, tag, branch, or commit SHA to archive.
     required: true
-  description:
-    description: Formula description.
-    required: true
-  homepage:
-    description: Project homepage. Defaults to the source repository URL.
+  version:
+    description: Formula version. Defaults to a short SHA for 40-character refs, otherwise ref.
     required: false
     default: ""
-  license:
-    description: SPDX license identifier.
-    required: true
-  main:
-    description: Go main package path.
+  template-path:
+    description: ERB template path inside the source repository.
     required: false
-    default: ""
-  binary:
-    description: Installed binary name. Defaults to the formula name.
-    required: false
-    default: ""
-  ldflags:
-    description: Go build ldflags used by Homebrew. Ruby interpolation is preserved.
-    required: false
-    default: "-s -w -X main.version=v#{version}"
-  test-args:
-    description: Arguments passed to the installed binary in the formula test.
-    required: false
-    default: "--version"
-  test-expected:
-    description: Expected substring in formula test output. Ruby interpolation is preserved.
-    required: false
-    default: "v#{version}"
+    default: ".github/homebrew/formula.rb.erb"
 
 outputs:
   formula-path:
@@ -56,6 +37,12 @@ outputs:
   sha256:
     description: Source archive SHA-256 checksum.
     value: ${{ steps.update.outputs.sha256 }}
+  resolved-ref:
+    description: Immutable commit SHA used by the source archive URL.
+    value: ${{ steps.update.outputs.resolved-ref }}
+  version:
+    description: Formula version exposed to the template.
+    value: ${{ steps.update.outputs.version }}
 
 runs:
   using: composite
@@ -64,15 +51,10 @@ runs:
       shell: bash
       env:
         TAP_PATH: ${{ inputs.tap-path }}
+        SOURCE_PATH: ${{ inputs.source-path }}
         FORMULA: ${{ inputs.formula }}
-        SOURCE_REPOSITORY: ${{ inputs.source-repository }}
-        TAG: ${{ inputs.tag }}
-        DESCRIPTION: ${{ inputs.description }}
-        HOMEPAGE: ${{ inputs.homepage }}
-        LICENSE: ${{ inputs.license }}
-        MAIN: ${{ inputs.main }}
-        BINARY: ${{ inputs.binary }}
-        LDFLAGS: ${{ inputs.ldflags }}
-        TEST_ARGS: ${{ inputs.test-args }}
-        TEST_EXPECTED: ${{ inputs.test-expected }}
+        REPOSITORY: ${{ inputs.repository }}
+        REF: ${{ inputs.ref }}
+        VERSION: ${{ inputs.version }}
+        TEMPLATE_PATH: ${{ inputs.template-path }}
       run: bash "$GITHUB_ACTION_PATH/generate.sh"

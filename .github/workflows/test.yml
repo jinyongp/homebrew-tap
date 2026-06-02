@@ -9,16 +9,34 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.repository.default_branch }}
+          path: source
+      - name: Add formula template fixture
+        run: bash .github/workflows/scripts/add-formula-template-fixture.sh
       - name: Shell syntax
         run: bash -n actions/publish/formula/generate.sh
       - name: Generate formula fixture
         uses: ./actions/publish/formula
         with:
-          formula: gate
-          source-repository: jinyongp/gate
-          tag: v0.9.0
-          description: Local-dev global HTTPS reverse proxy and port registry
-          license: MIT
-          main: ./cmd/gate
+          tap-path: .
+          source-path: source
+          formula: fixture
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.repository.default_branch }}
       - name: Validate generated formula syntax
-        run: ruby -c Formula/gate.rb
+        run: ruby -c Formula/fixture.rb
+      - name: Generate class-name fixture
+        uses: ./actions/publish/formula
+        with:
+          tap-path: .
+          source-path: source
+          formula: libfoo++
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Validate generated class name
+        run: |
+          ruby -c Formula/libfoo++.rb
+          grep -q 'class Libfooxx < Formula' Formula/libfoo++.rb
