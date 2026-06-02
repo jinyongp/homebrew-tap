@@ -14,8 +14,8 @@ jobs:
           repository: ${{ github.repository }}
           ref: ${{ github.event.repository.default_branch }}
           path: source
-      - name: Add formula template fixture
-        run: bash .github/workflows/scripts/add-formula-template-fixture.sh
+      - name: Add formula spec fixture
+        run: bash .github/workflows/scripts/add-formula-spec-fixture.sh
       - name: Shell syntax
         run: bash -n actions/publish/formula/generate.sh
       - name: Generate formula fixture

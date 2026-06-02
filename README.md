@@ -18,9 +18,9 @@ brew upgrade <formula>
 ## Release Automation
 
 Projects can update this tap by calling the reusable workflow. The publishing
-repository provides the Formula template, and this tap renders it with the source
-archive metadata, audits it, installs it from source, tests it, and pushes the
-formula commit.
+repository provides a Formula spec, and this tap generates the Formula with the
+source archive metadata, audits it, installs it from source, tests it, and pushes
+the formula commit.
 
 > [!IMPORTANT]
 > Provide exactly one publish credential: `token` or `deploy_key`.
@@ -103,42 +103,58 @@ jobs:
       token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 ```
 
-### Formula Template
+### Formula Spec
 
-Add `.github/homebrew/formula.rb.erb` to the publishing repository. The workflow
-renders that template into `Formula/<formula>.rb` in this tap.
+Add `.github/homebrew/formula.yml` to the publishing repository. The workflow
+generates `Formula/<formula>.rb` from that spec.
 
-```ruby
-class <%= class_name %> < Formula
-  desc "Example CLI"
-  homepage <%= "https://github.com/#{repository}".dump %>
-  url <%= archive_url.dump %>
-  version <%= version.dump %>
-  sha256 <%= sha256.dump %>
-  license "MIT"
-
-  def install
-    bin.install "example"
-  end
-
-  test do
-    system "#{bin}/example", "--version"
-  end
-end
+```yaml
+desc: Example tool
+homepage: https://github.com/<owner>/<repo>
+license: MIT
+install: |
+  bin.install "bin/example"
+test: |
+  system "#{bin}/example", "--version"
 ```
 
-Template variables:
+The tap owns Formula structure, source URL, version, SHA-256, class name,
+escaping, and field order. The source repository owns only metadata,
+dependencies, and the `install`/`test` snippets.
 
-| Variable | Value |
+Supported spec fields:
+
+| Field | Required | Value |
 | --- | --- |
-| `formula` | Formula name from workflow input |
-| `class_name` | Homebrew Formula class name derived from `formula` |
-| `repository` | GitHub repository, defaulting to the caller repository |
-| `ref` | Requested Git ref, tag, branch, or commit SHA, defaulting to the caller SHA |
-| `resolved_ref` | Checked-out source commit SHA used for the source archive |
-| `archive_url` | GitHub source archive URL for `repository` and `resolved_ref` |
-| `sha256` | SHA-256 checksum of the source archive |
-| `version` | Explicit version input, short SHA for 40-character refs, or `ref` |
+| `desc` | Yes | Formula description |
+| `homepage` | No | Defaults to `https://github.com/<repository>` |
+| `license` | Yes | SPDX string, `cannot_represent`, or `any_of`/`all_of` mapping |
+| `dependencies.runtime` | No | Runtime dependency names |
+| `dependencies.build` | No | Build dependency names |
+| `dependencies.test` | No | Test dependency names |
+| `dependencies.recommended` | No | Recommended dependency names |
+| `dependencies.optional` | No | Optional dependency names |
+| `install` | Yes | Ruby snippet inserted inside `def install` |
+| `test` | Yes | Ruby snippet inserted inside `test do` |
+
+Dependency example:
+
+```yaml
+dependencies:
+  runtime:
+    - openssl@3
+  build:
+    - go
+```
+
+License mapping example:
+
+```yaml
+license:
+  any_of:
+    - MIT
+    - Apache-2.0
+```
 
 Workflow inputs:
 
@@ -148,7 +164,7 @@ Workflow inputs:
 | `repository` | No | Caller repository |
 | `ref` | No | Caller SHA |
 | `version` | No | Short SHA for 40-character refs, otherwise `ref` |
-| `template-path` | No | `.github/homebrew/formula.rb.erb` |
+| `spec-path` | No | `.github/homebrew/formula.yml` |
 | `dry-run` | No | `false` |
 
 When `repository` is different from the caller repository, `ref` is required.
@@ -156,7 +172,7 @@ When `repository` is different from the caller repository, `ref` is required.
 ### Dry Run Check
 
 Add this to the publishing repository's regular check workflow so Formula
-template, audit, install, and test failures are caught before release/tag
+spec, audit, install, and test failures are caught before release/tag
 publishing:
 
 ```yaml

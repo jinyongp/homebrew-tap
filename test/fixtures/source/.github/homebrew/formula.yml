@@ -1,0 +1,10 @@
+desc: Fixture formula
+homepage: https://github.com/jinyongp/homebrew-tap
+license: MIT
+dependencies:
+  build:
+    - go
+install: |
+  prefix.install "README.md"
+test: |
+  assert_path_exists prefix/"README.md"

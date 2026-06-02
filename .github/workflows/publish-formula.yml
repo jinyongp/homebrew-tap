@@ -18,10 +18,10 @@ on:
         required: false
         type: string
         default: ""
-      template-path:
+      spec-path:
         required: false
         type: string
-        default: ".github/homebrew/formula.rb.erb"
+        default: ".github/homebrew/formula.yml"
       dry-run:
         required: false
         type: boolean
@@ -103,7 +103,7 @@ jobs:
           repository: ${{ steps.source.outputs.repository }}
           ref: ${{ steps.source.outputs.ref }}
           version: ${{ inputs.version }}
-          template-path: ${{ inputs.template-path }}
+          spec-path: ${{ inputs.spec-path }}
       - name: commit formula
         if: ${{ !inputs.dry-run }}
         id: commit_formula

@@ -1,5 +1,5 @@
 name: Publish Homebrew formula
-description: Render a caller-provided Homebrew formula template into this tap.
+description: Generate a Homebrew formula from a caller-provided formula spec.
 
 inputs:
   tap-path:
@@ -22,10 +22,10 @@ inputs:
     description: Formula version. Defaults to a short SHA for 40-character refs, otherwise ref.
     required: false
     default: ""
-  template-path:
-    description: ERB template path inside the source repository.
+  spec-path:
+    description: Formula spec YAML path inside the source repository.
     required: false
-    default: ".github/homebrew/formula.rb.erb"
+    default: ".github/homebrew/formula.yml"
 
 outputs:
   formula-path:
@@ -41,7 +41,7 @@ outputs:
     description: Immutable commit SHA used by the source archive URL.
     value: ${{ steps.update.outputs.resolved-ref }}
   version:
-    description: Formula version exposed to the template.
+    description: Formula version used by the generated formula.
     value: ${{ steps.update.outputs.version }}
 
 runs:
@@ -56,5 +56,5 @@ runs:
         REPOSITORY: ${{ inputs.repository }}
         REF: ${{ inputs.ref }}
         VERSION: ${{ inputs.version }}
-        TEMPLATE_PATH: ${{ inputs.template-path }}
+        SPEC_PATH: ${{ inputs.spec-path }}
       run: bash "$GITHUB_ACTION_PATH/generate.sh"
