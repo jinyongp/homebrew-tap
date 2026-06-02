@@ -1,0 +1,78 @@
+name: Publish Homebrew formula
+description: Generate a source-build Homebrew formula for a Go CLI.
+
+inputs:
+  tap-path:
+    description: Path to the checked-out Homebrew tap repository.
+    required: false
+    default: "."
+  formula:
+    description: Formula name, for example gate.
+    required: true
+  source-repository:
+    description: GitHub source repository in owner/name form.
+    required: true
+  tag:
+    description: Release tag or ref to archive.
+    required: true
+  description:
+    description: Formula description.
+    required: true
+  homepage:
+    description: Project homepage. Defaults to the source repository URL.
+    required: false
+    default: ""
+  license:
+    description: SPDX license identifier.
+    required: true
+  main:
+    description: Go main package path.
+    required: false
+    default: ""
+  binary:
+    description: Installed binary name. Defaults to the formula name.
+    required: false
+    default: ""
+  ldflags:
+    description: Go build ldflags used by Homebrew. Ruby interpolation is preserved.
+    required: false
+    default: "-s -w -X main.version=v#{version}"
+  test-args:
+    description: Arguments passed to the installed binary in the formula test.
+    required: false
+    default: "--version"
+  test-expected:
+    description: Expected substring in formula test output. Ruby interpolation is preserved.
+    required: false
+    default: "v#{version}"
+
+outputs:
+  formula-path:
+    description: Relative path to the generated formula.
+    value: ${{ steps.update.outputs.formula-path }}
+  archive-url:
+    description: Source archive URL used by the formula.
+    value: ${{ steps.update.outputs.archive-url }}
+  sha256:
+    description: Source archive SHA-256 checksum.
+    value: ${{ steps.update.outputs.sha256 }}
+
+runs:
+  using: composite
+  steps:
+    - id: update
+      shell: bash
+      env:
+        TAP_PATH: ${{ inputs.tap-path }}
+        FORMULA: ${{ inputs.formula }}
+        SOURCE_REPOSITORY: ${{ inputs.source-repository }}
+        TAG: ${{ inputs.tag }}
+        DESCRIPTION: ${{ inputs.description }}
+        HOMEPAGE: ${{ inputs.homepage }}
+        LICENSE: ${{ inputs.license }}
+        MAIN: ${{ inputs.main }}
+        BINARY: ${{ inputs.binary }}
+        LDFLAGS: ${{ inputs.ldflags }}
+        TEST_ARGS: ${{ inputs.test-args }}
+        TEST_EXPECTED: ${{ inputs.test-expected }}
+      run: bash "$GITHUB_ACTION_PATH/generate.sh"

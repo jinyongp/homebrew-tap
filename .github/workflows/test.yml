@@ -7,15 +7,18 @@ on:
 jobs:
   test:
     runs-on: macos-latest
-    env:
-      HOMEBREW_NO_INSTALL_CLEANUP: "1"
     steps:
-      - uses: actions/checkout@v4
-      - name: Tap formula
-        run: brew tap jinyongp/tap "$GITHUB_WORKSPACE"
-      - name: Audit
-        run: brew audit --strict jinyongp/tap/gate
-      - name: Install
-        run: brew install --build-from-source jinyongp/tap/gate
-      - name: Test
-        run: brew test jinyongp/tap/gate
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Shell syntax
+        run: bash -n actions/publish/formula/generate.sh
+      - name: Generate formula fixture
+        uses: ./actions/publish/formula
+        with:
+          formula: gate
+          source-repository: jinyongp/gate
+          tag: v0.9.0
+          description: Local-dev global HTTPS reverse proxy and port registry
+          license: MIT
+          main: ./cmd/gate
+      - name: Validate generated formula syntax
+        run: ruby -c Formula/gate.rb

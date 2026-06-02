@@ -1,41 +1,43 @@
 # homebrew-tap
 
-Homebrew tap for [gate](https://github.com/jinyongp/gate).
+Homebrew tap for jinyongp projects.
 
 ## Install
 
 ```sh
-brew install jinyongp/tap/gate
+brew install jinyongp/tap/<formula>
 ```
 
 ## Update
 
 ```sh
 brew update
-brew upgrade gate
+brew upgrade <formula>
 ```
 
-## Maintain Formula
+## Release Automation
 
-The current formula is pinned to a pre-1.0 gate commit because the latest
-published tag still uses the old project layout. Update `Formula/gate.rb` when
-the `v1.0.0` gate release is published:
+Projects can update this tap by calling the reusable workflow:
 
-1. Change `url` to the `v1.0.0` source archive:
+```yaml
+jobs:
+  homebrew:
+    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@v1
+    with:
+      formula: <formula>
+      source-repository: <owner>/<repo>
+      tag: ${{ needs.release_tag.outputs.tag }}
+      description: <short description>
+      license: <SPDX license>
+    secrets:
+      token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+```
 
-   ```ruby
-   url "https://github.com/jinyongp/gate/archive/refs/tags/v1.0.0.tar.gz"
-   ```
+The workflow generates `Formula/<name>.rb`, audits it, installs it from source,
+tests it, and pushes the formula commit.
 
-2. Replace `sha256` with the archive checksum.
-3. Remove `version "1.0.0-pre"` from the formula.
-4. Run:
+The lower-level composite action is also available for custom workflows:
 
-   ```sh
-   brew audit --strict jinyongp/tap/gate
-   brew install --build-from-source jinyongp/tap/gate
-   brew test jinyongp/tap/gate
-   ```
-
-Before `v1.0.0`, add a root license file to the gate repository and replace
-`license :cannot_represent` in the formula with the SPDX license identifier.
+```sh
+jinyongp/homebrew-tap/actions/publish/formula@v1
+```

@@ -1,0 +1,103 @@
+name: publish formula
+
+on:
+  workflow_call:
+    inputs:
+      formula:
+        required: true
+        type: string
+      source-repository:
+        required: true
+        type: string
+      tag:
+        required: true
+        type: string
+      description:
+        required: true
+        type: string
+      homepage:
+        required: false
+        type: string
+        default: ""
+      license:
+        required: true
+        type: string
+      main:
+        required: false
+        type: string
+        default: ""
+      binary:
+        required: false
+        type: string
+        default: ""
+      ldflags:
+        required: false
+        type: string
+        default: "-s -w -X main.version=v#{version}"
+      test-args:
+        required: false
+        type: string
+        default: "--version"
+      test-expected:
+        required: false
+        type: string
+        default: "v#{version}"
+    secrets:
+      token:
+        required: true
+
+jobs:
+  update:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: jinyongp/homebrew-tap
+          token: ${{ secrets.token }}
+          path: tap
+          fetch-depth: 0
+      - name: generate formula
+        id: formula
+        uses: ./tap/actions/publish/formula
+        with:
+          tap-path: tap
+          formula: ${{ inputs.formula }}
+          source-repository: ${{ inputs.source-repository }}
+          tag: ${{ inputs.tag }}
+          description: ${{ inputs.description }}
+          homepage: ${{ inputs.homepage }}
+          license: ${{ inputs.license }}
+          main: ${{ inputs.main }}
+          binary: ${{ inputs.binary }}
+          ldflags: ${{ inputs.ldflags }}
+          test-args: ${{ inputs.test-args }}
+          test-expected: ${{ inputs.test-expected }}
+      - name: commit formula
+        id: commit_formula
+        working-directory: tap
+        run: |
+          if [ -z "$(git status --porcelain -- "${FORMULA_PATH}")" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${FORMULA_PATH}"
+          git commit -m "chore: update ${FORMULA} to ${TAG}"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        env:
+          FORMULA_PATH: ${{ steps.formula.outputs.formula-path }}
+          FORMULA: ${{ inputs.formula }}
+          TAG: ${{ inputs.tag }}
+      - name: tap formula
+        run: brew tap jinyongp/tap "$GITHUB_WORKSPACE/tap"
+      - name: audit formula
+        run: brew audit --strict "jinyongp/tap/${{ inputs.formula }}"
+      - name: install formula
+        run: brew install --build-from-source "jinyongp/tap/${{ inputs.formula }}"
+      - name: test formula
+        run: brew test "jinyongp/tap/${{ inputs.formula }}"
+      - name: push formula
+        if: steps.commit_formula.outputs.changed == 'true'
+        working-directory: tap
+        run: git push
