@@ -23,6 +23,25 @@ reject_multiline "ref" "$REF"
 reject_multiline "version" "${VERSION:-}"
 reject_multiline "spec-path" "$SPEC_PATH"
 
+normalize_formula_version() {
+  local value="$1"
+
+  case "$value" in
+    refs/tags/*)
+      value="${value#refs/tags/}"
+      ;;
+    tags/*)
+      value="${value#tags/}"
+      ;;
+  esac
+
+  if [[ "$value" =~ ^[vV]([0-9].*)$ ]]; then
+    value="${BASH_REMATCH[1]}"
+  fi
+
+  printf '%s\n' "$value"
+}
+
 case "$FORMULA" in
   "" | *[!A-Za-z0-9._+@-]*)
     echo "formula may contain only letters, numbers, dot, underscore, plus, at sign, and dash: $FORMULA" >&2
@@ -64,6 +83,11 @@ if [ -z "$version" ]; then
   else
     version="$REF"
   fi
+fi
+version="$(normalize_formula_version "$version")"
+if [ -z "$version" ]; then
+  echo "version must not be empty" >&2
+  exit 1
 fi
 
 archive_url="https://github.com/${REPOSITORY}/archive/${resolved_ref}.tar.gz"

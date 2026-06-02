@@ -19,7 +19,7 @@ inputs:
     description: Git ref, tag, branch, or commit SHA to archive.
     required: true
   version:
-    description: Formula version. Defaults to a short SHA for 40-character refs, otherwise ref.
+    description: Formula version. Defaults to a short SHA for 40-character refs, otherwise ref. Tag prefixes and numeric v prefixes are stripped.
     required: false
     default: ""
   spec-path:

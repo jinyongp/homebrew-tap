@@ -40,3 +40,24 @@ jobs:
         run: |
           ruby -c Formula/libfoo++.rb
           grep -q 'class Libfooxx < Formula' Formula/libfoo++.rb
+      - name: Generate tag ref version fixture
+        uses: ./actions/publish/formula
+        with:
+          tap-path: .
+          source-path: source
+          formula: fixture
+          repository: ${{ github.repository }}
+          ref: v1.2.3
+      - name: Validate tag ref version normalization
+        run: grep -q 'version "1.2.3"' Formula/fixture.rb
+      - name: Generate explicit version fixture
+        uses: ./actions/publish/formula
+        with:
+          tap-path: .
+          source-path: source
+          formula: fixture
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.repository.default_branch }}
+          version: v1.2.4
+      - name: Validate explicit version normalization
+        run: grep -q 'version "1.2.4"' Formula/fixture.rb

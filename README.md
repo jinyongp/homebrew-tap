@@ -168,6 +168,9 @@ Workflow inputs:
 | `dry-run` | No | `false` |
 
 When `repository` is different from the caller repository, `ref` is required.
+Tag-style versions are normalized for Homebrew: `refs/tags/v1.2.3`,
+`tags/v1.2.3`, `ref: v1.2.3`, and `version: v1.2.3` render as
+`version "1.2.3"`.
 
 ### Dry Run Check
 
