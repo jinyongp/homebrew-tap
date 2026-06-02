@@ -113,8 +113,8 @@ class <%= class_name %> < Formula
   desc "Example CLI"
   homepage <%= "https://github.com/#{repository}".dump %>
   url <%= archive_url.dump %>
-  sha256 <%= sha256.dump %>
   version <%= version.dump %>
+  sha256 <%= sha256.dump %>
   license "MIT"
 
   def install
@@ -149,8 +149,27 @@ Workflow inputs:
 | `ref` | No | Caller SHA |
 | `version` | No | Short SHA for 40-character refs, otherwise `ref` |
 | `template-path` | No | `.github/homebrew/formula.rb.erb` |
+| `dry-run` | No | `false` |
 
 When `repository` is different from the caller repository, `ref` is required.
+
+### Dry Run Check
+
+Add this to the publishing repository's regular check workflow so Formula
+template, audit, install, and test failures are caught before release/tag
+publishing:
+
+```yaml
+jobs:
+  homebrew:
+    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@main
+    with:
+      formula: <formula>
+      dry-run: true
+```
+
+Dry runs do not require `token` or `deploy_key`, and they skip the formula commit
+and push steps.
 
 The lower-level composite action is also available for custom workflows:
 

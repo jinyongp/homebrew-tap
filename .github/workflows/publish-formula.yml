@@ -22,6 +22,10 @@ on:
         required: false
         type: string
         default: ".github/homebrew/formula.rb.erb"
+      dry-run:
+        required: false
+        type: boolean
+        default: false
     secrets:
       token:
         required: false
@@ -35,6 +39,10 @@ jobs:
       - name: select credential
         id: credential
         run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "mode=dry_run" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ -n "$TOKEN" ] && [ -n "$DEPLOY_KEY" ]; then
             echo "::error::Provide either token or deploy_key, not both."
             exit 1
@@ -50,6 +58,7 @@ jobs:
           echo "::error::Provide token or deploy_key to publish the formula."
           exit 1
         env:
+          DRY_RUN: ${{ inputs.dry-run }}
           TOKEN: ${{ secrets.token }}
           DEPLOY_KEY: ${{ secrets.deploy_key }}
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -64,6 +73,12 @@ jobs:
         with:
           repository: jinyongp/homebrew-tap
           ssh-key: ${{ secrets.deploy_key }}
+          path: tap
+          fetch-depth: 0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.credential.outputs.mode == 'dry_run'
+        with:
+          repository: jinyongp/homebrew-tap
           path: tap
           fetch-depth: 0
       - name: resolve source inputs
@@ -90,6 +105,7 @@ jobs:
           version: ${{ inputs.version }}
           template-path: ${{ inputs.template-path }}
       - name: commit formula
+        if: ${{ !inputs.dry-run }}
         id: commit_formula
         working-directory: tap
         run: bash .github/workflows/scripts/commit-formula.sh
@@ -106,6 +122,6 @@ jobs:
       - name: test formula
         run: brew test "jinyongp/tap/${{ inputs.formula }}"
       - name: push formula
-        if: steps.commit_formula.outputs.changed == 'true'
+        if: ${{ !inputs.dry-run && steps.commit_formula.outputs.changed == 'true' }}
         working-directory: tap
         run: git push
