@@ -1,18 +1,25 @@
 class Gate < Formula
   desc "Local-dev global HTTPS reverse proxy and port registry"
   homepage "https://github.com/jinyongp/gate"
-  url "https://github.com/jinyongp/gate/archive/84e9d4df9861eaeb26d6b3b75c18a7a64ed3c36e.tar.gz"
-  version "1.1.3"
-  sha256 "753dfe945b4301f7921752924fa23dadde39b50d5f776f39e75cba9c559f660e"
+  url "https://github.com/jinyongp/gate/archive/fdee99fcdebceb961e3033eec174afa6aaa673c3.tar.gz"
+  version "1.2.2"
+  sha256 "18600c6c3e64fc68c86de73b5b8c8746c81bf49b343a317527407aa84e2a19f4"
   license "MIT"
 
   depends_on "go" => :build
 
   def install
-    system "go", "build", *std_go_args(
-      ldflags: "-s -w -X main.version=v#{version}",
-      output:  bin/"gate",
-    ), "./cmd/gate"
+    system "go", "build", *std_go_args(ldflags: "-s -w -X main.version=v#{version}", output: bin/"gate"), "./cmd/gate"
+  end
+
+  def caveats
+    <<~EOS
+      For full cleanup, run:
+        gate uninstall
+
+      `brew uninstall gate` removes only the Homebrew package. It does not remove
+      gate's local state, trusted root CA, managed hosts block, or shell PATH block.
+    EOS
   end
 
   test do
