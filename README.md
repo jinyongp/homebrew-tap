@@ -120,7 +120,7 @@ test: |
 
 The tap owns Formula structure, source URL, version, SHA-256, class name,
 escaping, and field order. The source repository owns only metadata,
-dependencies, and the `install`/`test` snippets.
+dependencies, install/test behavior, and optional Homebrew stanzas.
 
 Supported spec fields:
 
@@ -129,12 +129,23 @@ Supported spec fields:
 | `desc` | Yes | Formula description |
 | `homepage` | No | Defaults to `https://github.com/<repository>` |
 | `license` | Yes | SPDX string, `cannot_represent`, or `any_of`/`all_of` mapping |
+| `options` | No | Option declarations |
 | `dependencies.runtime` | No | Runtime dependency names |
 | `dependencies.build` | No | Build dependency names |
 | `dependencies.test` | No | Test dependency names |
 | `dependencies.recommended` | No | Recommended dependency names |
 | `dependencies.optional` | No | Optional dependency names |
+| `uses_from_macos` | No | macOS-provided dependencies |
+| `keg_only` | No | Keg-only reason |
+| `conflicts_with` | No | Conflicting formulae |
+| `link_overwrite` | No | Link overwrite paths |
+| `deprecate` | No | `deprecate!` date/reason mapping |
+| `disable` | No | `disable!` date/reason mapping |
 | `install` | Yes | Ruby snippet inserted inside `def install` |
+| `post_install` | No | Ruby snippet inserted inside `def post_install` |
+| `caveats` | No | Ruby snippet inserted inside `def caveats` |
+| `service` | No | Ruby snippet inserted inside `service do` |
+| `livecheck` | No | Ruby snippet inserted inside `livecheck do` |
 | `test` | Yes | Ruby snippet inserted inside `test do` |
 
 Dependency example:
@@ -145,6 +156,20 @@ dependencies:
     - openssl@3
   build:
     - go
+```
+
+Optional stanza example:
+
+```yaml
+caveats: |
+  "Run `#{bin}/example init` before first use."
+service: |
+  run opt_bin/"example"
+conflicts_with:
+  - formula: old-example
+    because: both install `example`
+uses_from_macos:
+  - zlib
 ```
 
 License mapping example:

@@ -28,6 +28,17 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
       - name: Validate generated formula syntax
         run: ruby -c Formula/fixture.rb
+      - name: Validate generated formula stanzas
+        run: |
+          grep -q 'def caveats' Formula/fixture.rb
+          grep -q 'service do' Formula/fixture.rb
+          grep -q 'livecheck do' Formula/fixture.rb
+          grep -q 'conflicts_with "hello"' Formula/fixture.rb
+          grep -q 'uses_from_macos "zlib" => :build, since: :sequoia' Formula/fixture.rb
+      - name: Audit generated formula
+        run: |
+          brew tap jinyongp/tap "$GITHUB_WORKSPACE"
+          brew audit --strict jinyongp/tap/fixture
       - name: Generate class-name fixture
         uses: ./actions/publish/formula
         with:
@@ -61,3 +72,69 @@ jobs:
           version: v1.2.4
       - name: Validate explicit version normalization
         run: grep -q 'version "1.2.4"' Formula/fixture.rb
+      - name: Reject invalid formula specs
+        run: |
+          cat > source/.github/homebrew/formula.yml <<'YAML'
+          desc: Fixture formula
+          license: MIT
+          link_overwrite: false
+          install: |
+            prefix.install "README.md"
+          test: |
+            assert_path_exists prefix/"README.md"
+          YAML
+          if GITHUB_OUTPUT="$RUNNER_TEMP/reject-link-overwrite" TAP_PATH=. SOURCE_PATH=source FORMULA=fixture REPOSITORY="$GITHUB_REPOSITORY" REF="$GITHUB_SHA" SPEC_PATH=".github/homebrew/formula.yml" bash actions/publish/formula/generate.sh; then
+            echo "link_overwrite: false should fail"
+            exit 1
+          fi
+
+          cat > source/.github/homebrew/formula.yml <<'YAML'
+          desc: Fixture formula
+          license: MIT
+          conflicts_with:
+            - formula: fixture-conflict
+              becuase: typo
+          install: |
+            prefix.install "README.md"
+          test: |
+            assert_path_exists prefix/"README.md"
+          YAML
+          if GITHUB_OUTPUT="$RUNNER_TEMP/reject-conflict-key" TAP_PATH=. SOURCE_PATH=source FORMULA=fixture REPOSITORY="$GITHUB_REPOSITORY" REF="$GITHUB_SHA" SPEC_PATH=".github/homebrew/formula.yml" bash actions/publish/formula/generate.sh; then
+            echo "unknown nested keys should fail"
+            exit 1
+          fi
+
+          cat > source/.github/homebrew/formula.yml <<'YAML'
+          desc: Fixture formula
+          license: MIT
+          deprecate:
+            date: "2026-06-03"
+            because: unmaintained
+            replacement: fixture-new
+            replacement_formula: fixture-new
+          install: |
+            prefix.install "README.md"
+          test: |
+            assert_path_exists prefix/"README.md"
+          YAML
+          if GITHUB_OUTPUT="$RUNNER_TEMP/reject-replacement-keys" TAP_PATH=. SOURCE_PATH=source FORMULA=fixture REPOSITORY="$GITHUB_REPOSITORY" REF="$GITHUB_SHA" SPEC_PATH=".github/homebrew/formula.yml" bash actions/publish/formula/generate.sh; then
+            echo "multiple replacement keys should fail"
+            exit 1
+          fi
+
+          cat > source/.github/homebrew/formula.yml <<'YAML'
+          desc: Fixture formula
+          license: MIT
+          disable:
+            date: "2026-06-03"
+            because: unsupported
+            replacement: ""
+          install: |
+            prefix.install "README.md"
+          test: |
+            assert_path_exists prefix/"README.md"
+          YAML
+          if GITHUB_OUTPUT="$RUNNER_TEMP/reject-empty-replacement" TAP_PATH=. SOURCE_PATH=source FORMULA=fixture REPOSITORY="$GITHUB_REPOSITORY" REF="$GITHUB_SHA" SPEC_PATH=".github/homebrew/formula.yml" bash actions/publish/formula/generate.sh; then
+            echo "empty replacement should fail"
+            exit 1
+          fi

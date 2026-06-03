@@ -143,6 +143,22 @@ def indent_snippet(value, spaces)
   value.lines.map { |line| line == "\n" ? line : (" " * spaces) + line }.join
 end
 
+def render_snippet_block(name, value)
+  return "" if value.nil?
+  content = +"  #{name} do\n"
+  content << indent_snippet(value, 4)
+  content << "\n" unless content.end_with?("\n")
+  content << "  end\n"
+end
+
+def render_method(name, value)
+  return "" if value.nil?
+  content = +"  def #{name}\n"
+  content << indent_snippet(value, 4)
+  content << "\n" unless content.end_with?("\n")
+  content << "  end\n"
+end
+
 def render_license(value)
   case value
   when String
@@ -164,6 +180,22 @@ def string_list(value, path)
   value
 end
 
+def optional_list(spec, key)
+  value = spec[key]
+  return [] if value.nil?
+  fail_with("#{key} must be a list") unless value.is_a?(Array)
+  value
+end
+
+def symbol_or_string(value, path, symbolic_values: nil)
+  fail_with("#{path} must be a string") unless value.is_a?(String) && !value.empty?
+  if value.match?(/\A[a-z][a-z0-9_]*\z/) && (symbolic_values.nil? || symbolic_values.include?(value))
+    ":#{value}"
+  else
+    value.dump
+  end
+end
+
 def dependency_lines(value)
   return [] if value.nil?
   fail_with("dependencies must be a mapping") unless value.is_a?(Hash)
@@ -172,26 +204,143 @@ def dependency_lines(value)
   unknown = value.keys - allowed
   fail_with("unsupported dependency groups: #{unknown.join(", ")}") unless unknown.empty?
 
-  lines = []
+  entries = []
   string_list(value["runtime"] || [], "dependencies.runtime").each do |name|
-    lines << "  depends_on #{name.dump}"
+    entries << [2, name, "  depends_on #{name.dump}"]
   end
 
   {
-    "build" => ":build",
-    "test" => ":test",
-    "recommended" => ":recommended",
-    "optional" => ":optional",
-  }.each do |group, qualifier|
+    "build" => [0, ":build"],
+    "test" => [1, ":test"],
+    "recommended" => [3, ":recommended"],
+    "optional" => [4, ":optional"],
+  }.each do |group, (order, qualifier)|
     string_list(value[group] || [], "dependencies.#{group}").each do |name|
-      lines << "  depends_on #{name.dump} => #{qualifier}"
+      entries << [order, name, "  depends_on #{name.dump} => #{qualifier}"]
     end
   end
-  lines
+  entries.sort_by { |order, name, _| [order, name.downcase] }.map(&:last)
+end
+
+def option_lines(value)
+  optional_list({ "options" => value }, "options").map.with_index do |entry, index|
+    path = "options[#{index}]"
+    fail_with("#{path} must be a mapping") unless entry.is_a?(Hash)
+    unknown = entry.keys - %w[name description]
+    fail_with("unsupported #{path} keys: #{unknown.join(", ")}") unless unknown.empty?
+    name = required_string(entry, "name")
+    description = required_string(entry, "description")
+    "  option #{name.dump}, #{description.dump}"
+  end
+end
+
+def conflicts_with_lines(value)
+  optional_list({ "conflicts_with" => value }, "conflicts_with").map.with_index do |entry, index|
+    case entry
+    when String
+      "  conflicts_with #{entry.dump}"
+    when Hash
+      unknown = entry.keys - %w[formula because]
+      fail_with("unsupported conflicts_with[#{index}] keys: #{unknown.join(", ")}") unless unknown.empty?
+      formula = required_string(entry, "formula")
+      because = optional_string(entry, "because")
+      line = "  conflicts_with #{formula.dump}"
+      line << ", because: #{because.dump}" if because
+      line
+    else
+      fail_with("conflicts_with[#{index}] must be a string or mapping")
+    end
+  end
+end
+
+def uses_from_macos_lines(value)
+  entries = optional_list({ "uses_from_macos" => value }, "uses_from_macos").map.with_index do |entry, index|
+    case entry
+    when String
+      [2, entry, "  uses_from_macos #{entry.dump}"]
+    when Hash
+      unknown = entry.keys - %w[name since tags]
+      fail_with("unsupported uses_from_macos[#{index}] keys: #{unknown.join(", ")}") unless unknown.empty?
+      name = required_string(entry, "name")
+      tags = dependency_tags(entry["tags"], "uses_from_macos[#{index}].tags")
+      order = dependency_tag_order(tags)
+      dependency = tags.empty? ? name.dump : "#{name.dump} => #{render_tags(tags)}"
+      line = "  uses_from_macos #{dependency}"
+      since = optional_string(entry, "since")
+      line << ", since: #{symbol_or_string(since, "uses_from_macos[#{index}].since")}" if since
+      [order, name, line]
+    else
+      fail_with("uses_from_macos[#{index}] must be a string or mapping")
+    end
+  end
+  entries.sort_by { |order, name, _| [order, name.downcase] }.map(&:last)
+end
+
+def dependency_tags(value, path)
+  return [] if value.nil?
+  tags = value.is_a?(Array) ? value : [value]
+  allowed = %w[build test recommended optional]
+  fail_with("#{path} must be a string or list of strings") unless tags.all? { |tag| tag.is_a?(String) }
+  unknown = tags - allowed
+  fail_with("unsupported #{path}: #{unknown.join(", ")}") unless unknown.empty?
+  tags
+end
+
+def dependency_tag_order(tags)
+  return 0 if tags.include?("build")
+  return 1 if tags.include?("test")
+  return 3 if tags.include?("recommended")
+  return 4 if tags.include?("optional")
+  2
+end
+
+def render_tags(tags)
+  rendered = tags.map { |tag| ":#{tag}" }
+  rendered.length == 1 ? rendered.first : "[#{rendered.join(", ")}]"
+end
+
+def link_overwrite_lines(value)
+  return [] if value.nil?
+  string_list(value, "link_overwrite").map do |path|
+    "  link_overwrite #{path.dump}"
+  end
+end
+
+def lifecycle_line(method, value)
+  return nil if value.nil?
+  fail_with("#{method} must be a mapping") unless value.is_a?(Hash)
+  date = required_string(value, "date")
+  because = value.fetch("because") { fail_with("#{method}.because is required") }
+  reasons = %w[
+    checksum_mismatch deprecated_upstream does_not_build no_license
+    repo_archived repo_removed unmaintained unsupported versioned_formula
+  ]
+  allowed = %w[date because replacement replacement_formula replacement_cask]
+  unknown = value.keys - allowed
+  fail_with("unsupported #{method} keys: #{unknown.join(", ")}") unless unknown.empty?
+  replacements = %w[replacement replacement_formula replacement_cask].select { |key| value.key?(key) }
+  fail_with("#{method} may contain only one replacement key") if replacements.length > 1
+
+  parts = ["date: #{date.dump}", "because: #{symbol_or_string(because, "#{method}.because", symbolic_values: reasons)}"]
+  replacements.each do |key|
+    replacement = required_string(value, key)
+    parts << "#{key}: #{replacement.dump}"
+  end
+  "  #{method}! #{parts.join(", ")}"
+end
+
+def keg_only_line(value)
+  return nil if value.nil?
+  reasons = %w[provided_by_macos shadowed_by_macos versioned_formula]
+  "  keg_only #{symbol_or_string(value, "keg_only", symbolic_values: reasons)}"
 end
 
 def ensure_known_keys(spec)
-  allowed = %w[desc homepage license dependencies install test]
+  allowed = %w[
+    caveats conflicts_with dependencies deprecate disable desc homepage install keg_only
+    license link_overwrite livecheck options post_install service test
+    uses_from_macos
+  ]
   unknown = spec.keys - allowed
   fail_with("unsupported formula spec keys: #{unknown.join(", ")}") unless unknown.empty?
 end
@@ -214,6 +363,14 @@ license = spec.fetch("license") { fail_with("license is required") }
 install = required_string(spec, "install")
 test = required_string(spec, "test")
 dependencies = dependency_lines(spec["dependencies"])
+options = option_lines(spec["options"])
+conflicts_with = conflicts_with_lines(spec["conflicts_with"])
+uses_from_macos = uses_from_macos_lines(spec["uses_from_macos"])
+link_overwrite = link_overwrite_lines(spec["link_overwrite"])
+lifecycle = [
+  lifecycle_line("deprecate", spec["deprecate"]),
+  lifecycle_line("disable", spec["disable"]),
+].compact
 
 content = +"class #{class_name} < Formula\n"
 content << "  desc #{desc.dump}\n"
@@ -224,8 +381,24 @@ content << "  sha256 #{ENV.fetch("SHA256").dump}\n"
 content << "  license #{render_license(license)}\n"
 content << "\n"
 
-unless dependencies.empty?
-  content << dependencies.join("\n")
+class_stanzas = []
+class_stanzas << keg_only_line(spec["keg_only"])
+class_stanzas.concat(options)
+class_stanzas.concat(lifecycle)
+class_stanzas.concat(dependencies)
+class_stanzas.concat(uses_from_macos)
+class_stanzas.concat(conflicts_with)
+class_stanzas.concat(link_overwrite)
+class_stanzas.compact!
+
+livecheck = render_snippet_block("livecheck", optional_string(spec, "livecheck"))
+unless livecheck.empty?
+  content << livecheck
+  content << "\n"
+end
+
+unless class_stanzas.empty?
+  content << class_stanzas.join("\n")
   content << "\n\n"
 end
 
@@ -234,6 +407,21 @@ content << indent_snippet(install, 4)
 content << "\n" unless content.end_with?("\n")
 content << "  end\n"
 content << "\n"
+post_install = render_method("post_install", optional_string(spec, "post_install"))
+unless post_install.empty?
+  content << post_install
+  content << "\n"
+end
+caveats = render_method("caveats", optional_string(spec, "caveats"))
+unless caveats.empty?
+  content << caveats
+  content << "\n"
+end
+service = render_snippet_block("service", optional_string(spec, "service"))
+unless service.empty?
+  content << service
+  content << "\n"
+end
 content << "  test do\n"
 content << indent_snippet(test, 4)
 content << "\n" unless content.end_with?("\n")
