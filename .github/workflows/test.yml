@@ -53,7 +53,8 @@ jobs:
           grep -q 'uses_from_macos "zlib" => :build, since: :sequoia' Formula/fixture.rb
       - name: Audit generated formula
         run: |
-          brew tap jinyongp/tap "$GITHUB_WORKSPACE"
+          brew tap-new jinyongp/tap
+          cp Formula/fixture.rb "$(brew --repo jinyongp/tap)/Formula/fixture.rb"
           brew audit --strict jinyongp/tap/fixture
       - name: Generate class-name fixture
         uses: ./actions/publish/formula
