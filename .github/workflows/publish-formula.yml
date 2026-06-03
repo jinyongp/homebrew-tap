@@ -66,24 +66,24 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: steps.credential.outputs.mode == 'token'
         with:
-          repository: jinyongp/homebrew-tap
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           token: ${{ secrets.token }}
           path: tap
           fetch-depth: 0
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: steps.credential.outputs.mode == 'deploy_key'
         with:
-          repository: jinyongp/homebrew-tap
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           ssh-key: ${{ secrets.deploy_key }}
           path: tap
           fetch-depth: 0
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: steps.credential.outputs.mode == 'dry_run'
         with:
-          repository: jinyongp/homebrew-tap
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: tap
           fetch-depth: 0
           persist-credentials: false
