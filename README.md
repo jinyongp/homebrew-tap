@@ -23,18 +23,19 @@ source archive metadata, audits it, installs it from source, tests it, and pushe
 the formula commit.
 
 > [!IMPORTANT]
-> Provide exactly one publish credential: `token` or `deploy_key`.
+> For non-dry-run publishing, provide exactly one publish credential: `token`
+> or `deploy_key`.
 
 ### Credential Options
 
 | Method | Best for | Pros | Cons |
 | --- | --- | --- | --- |
-| Deploy key | One source repository publishing one formula | Repository-scoped, no personal account token, easy to rotate per formula | One deploy key per source repository/formula pair |
+| Deploy key | One trusted source repository publishing to this tap | Repository-scoped, no personal account token, easy to rotate per source repository | Write access covers the whole tap repository |
 | Fine-grained PAT | One credential publishing many formulas | One secret can publish from multiple source repositories | Tied to a user or bot account, broader blast radius |
 
 ### Deploy Key
 
-Use a deploy key when a source repository should publish only its own formula.
+Use a deploy key when a trusted source repository should publish to this tap.
 Run this from the source repository that publishes the formula:
 
 ```sh
@@ -53,8 +54,9 @@ curl -fsSL https://raw.githubusercontent.com/jinyongp/homebrew-tap/main/scripts/
 ```
 
 Repeat that setup for each source repository that publishes to this tap. GitHub
-deploy keys are repository-scoped, so generate one key per formula/source
-repository pair.
+deploy keys are repository-scoped to the tap, not formula-scoped. A workflow
+holding this secret can push any formula in this tap, so only install it in
+source repositories trusted to publish here.
 
 Rerun the setup script with `--force` to rotate an existing deploy key and
 secret.

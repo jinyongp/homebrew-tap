@@ -92,13 +92,27 @@ require_command ssh-keygen
 
 gh auth status >/dev/null
 
+validate_repo() {
+  case "$1" in
+    */*/* | /* | */ | *[!A-Za-z0-9._/-]* | "")
+      echo "$2 repo must be owner/repo: $1"
+      exit 1
+      ;;
+    */*) ;;
+    *)
+      echo "$2 repo must be owner/repo: $1"
+      exit 1
+      ;;
+  esac
+}
+
 case "$TAP_REPO" in
-  */*) ;;
-  *)
-    echo "tap repo must be owner/repo: $TAP_REPO"
+  *".."*)
+    echo "tap repo must not contain '..': $TAP_REPO"
     exit 1
     ;;
 esac
+validate_repo "$TAP_REPO" "tap"
 
 case "$SECRET_NAME" in
   *[!A-Z0-9_]* | "")
@@ -112,12 +126,12 @@ if [ -z "$SOURCE_REPO" ]; then
 fi
 
 case "$SOURCE_REPO" in
-  */*) ;;
-  *)
-    echo "source repo must be owner/repo: $SOURCE_REPO"
+  *".."*)
+    echo "source repo must not contain '..': $SOURCE_REPO"
     exit 1
     ;;
 esac
+validate_repo "$SOURCE_REPO" "source"
 
 if [ -z "$KEY_TITLE" ]; then
   KEY_TITLE="formula/${SOURCE_REPO##*/}"
@@ -185,12 +199,20 @@ gh secret set "$SECRET_NAME" --repo "$SOURCE_REPO" <"$private_key"
 completed=1
 
 if [ "$FORCE" -eq 1 ] && [ -n "$existing_keys" ]; then
+  failed_deletes=""
   while IFS= read -r key_id; do
     if [ -n "$key_id" ]; then
-      gh api -X DELETE "repos/${TAP_REPO}/keys/${key_id}" >/dev/null
-      echo "deleted old deploy key ${key_id} from ${TAP_REPO}"
+      if gh api -X DELETE "repos/${TAP_REPO}/keys/${key_id}" >/dev/null; then
+        echo "deleted old deploy key ${key_id} from ${TAP_REPO}"
+      else
+        failed_deletes="${failed_deletes}${failed_deletes:+ }${key_id}"
+      fi
     fi
   done <<<"$existing_keys"
+  if [ -n "$failed_deletes" ]; then
+    echo "failed to delete old deploy key(s) from ${TAP_REPO}: ${failed_deletes}" >&2
+    exit 1
+  fi
 fi
 
 echo "created deploy key '${KEY_TITLE}' in ${TAP_REPO}"

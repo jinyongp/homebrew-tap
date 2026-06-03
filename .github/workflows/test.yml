@@ -17,7 +17,23 @@ jobs:
       - name: Add formula spec fixture
         run: bash .github/workflows/scripts/add-formula-spec-fixture.sh
       - name: Shell syntax
-        run: bash -n actions/publish/formula/generate.sh
+        run: |
+          bash -n actions/publish/formula/generate.sh
+          bash -n scripts/setup-deploy-key.sh
+          bash -n .github/workflows/scripts/add-formula-spec-fixture.sh
+          bash -n .github/workflows/scripts/commit-formula.sh
+          bash -n .github/workflows/scripts/push-formula.sh
+          bash -n .github/workflows/scripts/resolve-source-inputs.sh
+      - name: Reject invalid source inputs
+        run: |
+          export GITHUB_OUTPUT="$RUNNER_TEMP/reject-source-repo"
+          export GITHUB_REPOSITORY=owner/repo
+          export INPUT_REPOSITORY=owner/repo/extra
+          export INPUT_REF="$GITHUB_SHA"
+          if bash .github/workflows/scripts/resolve-source-inputs.sh; then
+            echo "invalid source repository should fail"
+            exit 1
+          fi
       - name: Generate formula fixture
         uses: ./actions/publish/formula
         with:
@@ -136,5 +152,49 @@ jobs:
           YAML
           if GITHUB_OUTPUT="$RUNNER_TEMP/reject-empty-replacement" TAP_PATH=. SOURCE_PATH=source FORMULA=fixture REPOSITORY="$GITHUB_REPOSITORY" REF="$GITHUB_SHA" SPEC_PATH=".github/homebrew/formula.yml" bash actions/publish/formula/generate.sh; then
             echo "empty replacement should fail"
+            exit 1
+          fi
+
+          if GITHUB_OUTPUT="$RUNNER_TEMP/reject-class-name" TAP_PATH=. SOURCE_PATH=source FORMULA=1foo REPOSITORY="$GITHUB_REPOSITORY" REF="$GITHUB_SHA" SPEC_PATH=".github/homebrew/formula.yml" bash actions/publish/formula/generate.sh; then
+            echo "invalid formula class name should fail"
+            exit 1
+          fi
+
+          cat > source/.github/homebrew/formula.yml <<'YAML'
+          desc: Fixture formula
+          license: MIT
+          dependencies:
+            runtime:
+              - go
+            build:
+              - go
+          install: |
+            prefix.install "README.md"
+          test: |
+            assert_path_exists prefix/"README.md"
+          YAML
+          if GITHUB_OUTPUT="$RUNNER_TEMP/reject-duplicate-dependency" TAP_PATH=. SOURCE_PATH=source FORMULA=fixture REPOSITORY="$GITHUB_REPOSITORY" REF="$GITHUB_SHA" SPEC_PATH=".github/homebrew/formula.yml" bash actions/publish/formula/generate.sh; then
+            echo "duplicate dependencies should fail"
+            exit 1
+          fi
+
+          cat > source/.github/homebrew/formula.yml <<'YAML'
+          desc: Fixture formula
+          license: MIT
+          disable:
+            date: 2026-06-03
+            because: unsupported
+          install: |
+            prefix.install "README.md"
+          test: |
+            assert_path_exists prefix/"README.md"
+          YAML
+          if GITHUB_OUTPUT="$RUNNER_TEMP/reject-unquoted-date" TAP_PATH=. SOURCE_PATH=source FORMULA=fixture REPOSITORY="$GITHUB_REPOSITORY" REF="$GITHUB_SHA" SPEC_PATH=".github/homebrew/formula.yml" bash actions/publish/formula/generate.sh; then
+            echo "unquoted YAML dates should fail"
+            exit 1
+          fi
+
+          if GITHUB_OUTPUT="$RUNNER_TEMP/reject-repository" TAP_PATH=. SOURCE_PATH=source FORMULA=fixture REPOSITORY=owner/repo/extra REF="$GITHUB_SHA" SPEC_PATH=".github/homebrew/formula.yml" bash actions/publish/formula/generate.sh; then
+            echo "invalid repository should fail"
             exit 1
           fi

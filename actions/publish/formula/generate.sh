@@ -23,6 +23,20 @@ reject_multiline "ref" "$REF"
 reject_multiline "version" "${VERSION:-}"
 reject_multiline "spec-path" "$SPEC_PATH"
 
+validate_repo() {
+  case "$1" in
+    */*/* | /* | */ | *".."* | *[!A-Za-z0-9._/-]* | "")
+      echo "repository must be owner/name, got: $1" >&2
+      exit 1
+      ;;
+    */*) ;;
+    *)
+      echo "repository must be owner/name, got: $1" >&2
+      exit 1
+      ;;
+  esac
+}
+
 normalize_formula_version() {
   local value="$1"
 
@@ -49,13 +63,7 @@ case "$FORMULA" in
     ;;
 esac
 
-case "$REPOSITORY" in
-  */*) ;;
-  *)
-    echo "repository must be owner/name, got: $REPOSITORY" >&2
-    exit 1
-    ;;
-esac
+validate_repo "$REPOSITORY"
 
 case "$SPEC_PATH" in
   /* | *"/../"* | ../* | */.. | "..")
@@ -219,6 +227,8 @@ def dependency_lines(value)
       entries << [order, name, "  depends_on #{name.dump} => #{qualifier}"]
     end
   end
+  duplicates = entries.group_by { |_, name, _| name.downcase }.select { |_, grouped| grouped.length > 1 }.keys
+  fail_with("dependencies may not contain duplicate names across groups: #{duplicates.join(", ")}") unless duplicates.empty?
   entries.sort_by { |order, name, _| [order, name.downcase] }.map(&:last)
 end
 
@@ -351,12 +361,18 @@ unless spec_path.start_with?(source_root + File::SEPARATOR)
   fail_with("spec-path must stay inside the source repository")
 end
 
-spec = YAML.safe_load(File.read(spec_path), permitted_classes: [], aliases: false)
+begin
+  spec = YAML.safe_load(File.read(spec_path), permitted_classes: [], aliases: false)
+rescue Psych::Exception => e
+  fail_with("formula spec YAML is invalid: #{e.message}")
+end
+
 fail_with("formula spec must be a mapping") unless spec.is_a?(Hash)
 ensure_known_keys(spec)
 
 formula = ENV.fetch("FORMULA")
 class_name = formula_class(formula)
+fail_with("formula renders an invalid Ruby class name: #{class_name}") unless class_name.match?(/\A[A-Z]\w*\z/)
 desc = required_string(spec, "desc")
 homepage = optional_string(spec, "homepage") || "https://github.com/#{ENV.fetch("REPOSITORY")}"
 license = spec.fetch("license") { fail_with("license is required") }

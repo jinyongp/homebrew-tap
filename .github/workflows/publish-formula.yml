@@ -35,6 +35,8 @@ on:
 jobs:
   publish:
     runs-on: macos-latest
+    permissions:
+      contents: read
     steps:
       - name: select credential
         id: credential
@@ -65,6 +67,7 @@ jobs:
         if: steps.credential.outputs.mode == 'token'
         with:
           repository: jinyongp/homebrew-tap
+          ref: ${{ github.workflow_sha }}
           token: ${{ secrets.token }}
           path: tap
           fetch-depth: 0
@@ -72,6 +75,7 @@ jobs:
         if: steps.credential.outputs.mode == 'deploy_key'
         with:
           repository: jinyongp/homebrew-tap
+          ref: ${{ github.workflow_sha }}
           ssh-key: ${{ secrets.deploy_key }}
           path: tap
           fetch-depth: 0
@@ -79,8 +83,10 @@ jobs:
         if: steps.credential.outputs.mode == 'dry_run'
         with:
           repository: jinyongp/homebrew-tap
+          ref: ${{ github.workflow_sha }}
           path: tap
           fetch-depth: 0
+          persist-credentials: false
       - name: resolve source inputs
         id: source
         run: bash tap/.github/workflows/scripts/resolve-source-inputs.sh
@@ -93,6 +99,7 @@ jobs:
           ref: ${{ steps.source.outputs.ref }}
           path: source
           fetch-depth: 0
+          persist-credentials: false
       - name: generate formula
         id: formula
         uses: ./tap/actions/publish/formula
@@ -124,4 +131,4 @@ jobs:
       - name: push formula
         if: ${{ !inputs.dry-run && steps.commit_formula.outputs.changed == 'true' }}
         working-directory: tap
-        run: git push
+        run: bash .github/workflows/scripts/push-formula.sh
