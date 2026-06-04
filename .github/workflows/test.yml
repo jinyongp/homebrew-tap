@@ -22,8 +22,24 @@ jobs:
           bash -n scripts/setup-deploy-key.sh
           bash -n .github/workflows/scripts/add-formula-spec-fixture.sh
           bash -n .github/workflows/scripts/commit-formula.sh
+          bash -n .github/workflows/scripts/delete-formula.sh
           bash -n .github/workflows/scripts/push-formula.sh
           bash -n .github/workflows/scripts/resolve-source-inputs.sh
+      - name: Delete formula fixture
+        run: |
+          export GITHUB_OUTPUT="$RUNNER_TEMP/delete-formula"
+          export FORMULA=dotfiles
+          export DRY_RUN=true
+          bash .github/workflows/scripts/delete-formula.sh
+      - name: Reject invalid delete formula inputs
+        run: |
+          export GITHUB_OUTPUT="$RUNNER_TEMP/reject-delete-formula"
+          export FORMULA=../dotfiles
+          export DRY_RUN=true
+          if bash .github/workflows/scripts/delete-formula.sh; then
+            echo "invalid formula name should fail"
+            exit 1
+          fi
       - name: Reject invalid source inputs
         run: |
           export GITHUB_OUTPUT="$RUNNER_TEMP/reject-source-repo"

@@ -15,6 +15,22 @@ brew update
 brew upgrade <formula>
 ```
 
+## Delete Formula
+
+Run the `delete formula` workflow manually from GitHub Actions when a formula
+should be removed from this tap.
+
+Inputs:
+
+| Input | Required | Default |
+| --- | --- | --- |
+| `formula` | Yes | |
+| `dry-run` | No | `false` |
+
+The workflow deletes `Formula/<formula>.rb`, commits the deletion, and pushes it
+to `main`. Existing local installs remain on users' machines, but new installs
+and upgrades from this tap stop after users run `brew update`.
+
 ## Release Automation
 
 Projects can update this tap by calling the reusable workflow. The publishing

@@ -1,0 +1,33 @@
+name: delete formula
+
+on:
+  workflow_dispatch:
+    inputs:
+      formula:
+        description: Formula name to delete
+        required: true
+        type: string
+      dry-run:
+        description: Show what would be deleted without committing
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  delete:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+      - name: delete formula
+        id: delete_formula
+        run: bash .github/workflows/scripts/delete-formula.sh
+        env:
+          FORMULA: ${{ inputs.formula }}
+          DRY_RUN: ${{ inputs.dry-run }}
+      - name: push formula deletion
+        if: ${{ !inputs.dry-run && steps.delete_formula.outputs.changed == 'true' }}
+        run: bash .github/workflows/scripts/push-formula.sh
