@@ -143,7 +143,7 @@ dependencies, install/test behavior, and optional Homebrew stanzas.
 Supported spec fields:
 
 | Field | Required | Value |
-| --- | --- |
+| --- | --- | --- |
 | `desc` | Yes | Formula description |
 | `homepage` | No | Defaults to `https://github.com/<repository>` |
 | `license` | Yes | SPDX string, `cannot_represent`, or `any_of`/`all_of` mapping |
