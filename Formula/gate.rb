@@ -1,26 +1,26 @@
 class Gate < Formula
   desc "Local-dev global HTTPS reverse proxy and port registry"
   homepage "https://github.com/jinyongp/gate"
-  version "2.10.1"
+  version "2.11.1"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/jinyongp/gate/releases/download/v2.10.1/gate-darwin-arm64", using: :nounzip
-      sha256 "c03cf803ea6337c1964858eeadb4ec34b8ca1aaf2ca96916125c185ad844228c"
+      url "https://github.com/jinyongp/gate/releases/download/v2.11.1/gate-darwin-arm64", using: :nounzip
+      sha256 "2408049b7e3385560abe4b435e709e340ea4dcca030667ec28d6d935eb104fb4"
     else
-      url "https://github.com/jinyongp/gate/releases/download/v2.10.1/gate-darwin-amd64", using: :nounzip
-      sha256 "6d545ed05fa7792cb58d18340f908795ed26360b1b5f9e5cb087a9e40a2439ee"
+      url "https://github.com/jinyongp/gate/releases/download/v2.11.1/gate-darwin-amd64", using: :nounzip
+      sha256 "ade79b21f7dbdfe6cf313d916aac9d6ab0a8ef5f30c0114d64227ba5bfec9280"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/jinyongp/gate/releases/download/v2.10.1/gate-linux-arm64", using: :nounzip
-      sha256 "8006bbdb95efa1a3fd289bc7d1d8b4d8c1b0a6478a007a4ba4a0c75e1fa8cadc"
+      url "https://github.com/jinyongp/gate/releases/download/v2.11.1/gate-linux-arm64", using: :nounzip
+      sha256 "5a13e82376d4ad0337042794f8a53479e13d96df521f9e7abf267053e2b60578"
     else
-      url "https://github.com/jinyongp/gate/releases/download/v2.10.1/gate-linux-amd64", using: :nounzip
-      sha256 "184f8a9412f3180c726eee79f9b76b510d191da2f92c82fa16c63010df3286b8"
+      url "https://github.com/jinyongp/gate/releases/download/v2.11.1/gate-linux-amd64", using: :nounzip
+      sha256 "314d0ba5029c2c908eb2561b66d5273f56ae7b6c1cf5d552eec2382af1e006f2"
     end
   end
 
