@@ -35,6 +35,20 @@ jobs:
             echo "invalid source repository should fail"
             exit 1
           fi
+      - name: Reject unknown deploy-key setup options
+        run: |
+          for option in --froce -force; do
+            if output="$(bash scripts/setup-deploy-key.sh "$option" 2>&1)"; then
+              echo "unknown deploy-key setup option should fail: $option"
+              exit 1
+            fi
+            expected="Unknown option: $option"
+            if [[ "$output" != *"$expected"* ]]; then
+              printf '%s\n' "$output" >&2
+              echo "unknown deploy-key setup option failed for an unexpected reason: $option" >&2
+              exit 1
+            fi
+          done
       - name: Generate formula fixture
         uses: ./actions/publish/formula
         with:

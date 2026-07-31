@@ -42,6 +42,11 @@ for arg in "$@"; do
       usage
       exit 0
       ;;
+    -*)
+      echo "Unknown option: $arg"
+      usage
+      exit 1
+      ;;
     *)
       if [ "$KEY_TITLE_SET" -eq 1 ]; then
         KEY_TITLE="$arg"
@@ -91,6 +96,14 @@ require_command gh
 require_command ssh-keygen
 
 gh auth status >/dev/null
+
+fail_step() {
+  echo "failed to $1" >&2
+  echo "  tap repository:    ${TAP_REPO}" >&2
+  echo "  source repository: ${SOURCE_REPO}" >&2
+  echo "  authenticated user must administer both repositories" >&2
+  exit 1
+}
 
 validate_repo() {
   case "$1" in
@@ -186,15 +199,25 @@ umask 077
 ssh-keygen -t ed25519 -C "${KEY_TITLE}@${SOURCE_REPO}" -N "" -f "$private_key" >/dev/null
 
 public_key="$(sed -n '1p' "${private_key}.pub")"
-created_key_id="$(
+if ! created_key_id="$(
   gh api -X POST "repos/${TAP_REPO}/keys" \
     -f title="$KEY_TITLE" \
     -f key="$public_key" \
     -F read_only=false \
     --jq '.id'
-)"
+)"; then
+  fail_step "create deploy key '${KEY_TITLE}'"
+fi
 
-gh secret set "$SECRET_NAME" --repo "$SOURCE_REPO" <"$private_key"
+if [ -z "$created_key_id" ]; then
+  echo "GitHub did not return a deploy key ID" >&2
+  fail_step "create deploy key '${KEY_TITLE}'"
+fi
+
+if ! gh secret set "$SECRET_NAME" --repo "$SOURCE_REPO" <"$private_key"; then
+  echo "the newly created deploy key will be removed" >&2
+  fail_step "store Actions secret '${SECRET_NAME}'"
+fi
 
 completed=1
 

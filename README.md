@@ -74,8 +74,18 @@ deploy keys are repository-scoped to the tap, not formula-scoped. A workflow
 holding this secret can push any formula in this tap, so only install it in
 source repositories trusted to publish here.
 
-Rerun the setup script with `--force` to rotate an existing deploy key and
-secret.
+Rotate an existing deploy key and secret with:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jinyongp/homebrew-tap/main/scripts/setup-deploy-key.sh | bash -s -- --force
+```
+
+When using a custom key title, keep the environment override on the `bash`
+process:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jinyongp/homebrew-tap/main/scripts/setup-deploy-key.sh | KEY_TITLE=formula/<formula> bash -s -- --force
+```
 
 Workflow usage:
 
