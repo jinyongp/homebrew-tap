@@ -67,6 +67,8 @@ jobs:
           grep -q 'livecheck do' Formula/fixture.rb
           grep -q 'conflicts_with "hello"' Formula/fixture.rb
           grep -q 'uses_from_macos "zlib" => :build, since: :sequoia' Formula/fixture.rb
+          grep -Fq 'system bin/"fixture", "--help"' Formula/fixture.rb
+          grep -Fq 'shell_output("#{bin}/fixture --version")' Formula/fixture.rb
       - name: Audit generated formula
         run: |
           brew tap-new jinyongp/tap
@@ -84,6 +86,30 @@ jobs:
         run: |
           ruby -c Formula/libfoo++.rb
           grep -q 'class Libfooxx < Formula' Formula/libfoo++.rb
+      - name: Generate versioned class-name fixture
+        uses: ./actions/publish/formula
+        with:
+          tap-path: .
+          source-path: source
+          formula: openssl@1.1
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Validate versioned class name
+        run: |
+          ruby -c Formula/openssl@1.1.rb
+          grep -q 'class OpensslAT11 < Formula' Formula/openssl@1.1.rb
+      - name: Generate mixed-case class-name fixture
+        uses: ./actions/publish/formula
+        with:
+          tap-path: .
+          source-path: source
+          formula: fooBar
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Validate mixed-case class name
+        run: |
+          ruby -c Formula/fooBar.rb
+          grep -q 'class Foobar < Formula' Formula/fooBar.rb
       - name: Generate tag ref version fixture
         uses: ./actions/publish/formula
         with:

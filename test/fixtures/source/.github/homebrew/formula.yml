@@ -26,6 +26,7 @@ install: |
   (bin/"fixture").write "#!/bin/sh\necho fixture\n"
   chmod 0755, bin/"fixture"
   prefix.install "README.md"
+  system "#{bin}/fixture", "--help"
 post_install: |
   etc.install_symlink prefix/"README.md" => "fixture-readme"
 service: |
@@ -34,3 +35,4 @@ livecheck: |
   skip "fixture"
 test: |
   assert_path_exists prefix/"README.md"
+  shell_output("#{bin}/fixture --version")

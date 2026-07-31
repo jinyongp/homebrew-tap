@@ -139,6 +139,8 @@ test: |
 The tap owns Formula structure, source URL, version, SHA-256, class name,
 escaping, and field order. The source repository owns only metadata,
 dependencies, install/test behavior, and optional Homebrew stanzas.
+The tap does not infer package-specific toolchain or build settings from those
+values.
 
 Supported spec fields:
 

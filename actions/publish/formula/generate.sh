@@ -131,7 +131,11 @@ def fail_with(message)
 end
 
 def formula_class(name)
-  name.gsub("+", "x").gsub("@", " AT ").split(/[^A-Za-z0-9]+/).reject(&:empty?).map { |part| part[0].upcase + part[1..] }.join
+  class_name = name.capitalize
+  class_name.gsub!(/[-_.\s]([a-zA-Z0-9])/) { Regexp.last_match(1).upcase }
+  class_name.tr!("+", "x")
+  class_name.sub!(/(.)@(\d)/, "\\1AT\\2")
+  class_name
 end
 
 def required_string(spec, key)
@@ -149,6 +153,10 @@ end
 
 def indent_snippet(value, spaces)
   value.lines.map { |line| line == "\n" ? line : (" " * spaces) + line }.join
+end
+
+def normalize_bin_paths(value)
+  value.gsub(/"#\{bin\}\/([^"\s]+)"/, 'bin/"\\1"')
 end
 
 def render_snippet_block(name, value)
@@ -376,8 +384,8 @@ fail_with("formula renders an invalid Ruby class name: #{class_name}") unless cl
 desc = required_string(spec, "desc")
 homepage = optional_string(spec, "homepage") || "https://github.com/#{ENV.fetch("REPOSITORY")}"
 license = spec.fetch("license") { fail_with("license is required") }
-install = required_string(spec, "install")
-test = required_string(spec, "test")
+install = normalize_bin_paths(required_string(spec, "install"))
+test = normalize_bin_paths(required_string(spec, "test"))
 dependencies = dependency_lines(spec["dependencies"])
 options = option_lines(spec["options"])
 conflicts_with = conflicts_with_lines(spec["conflicts_with"])
