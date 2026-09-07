@@ -25,6 +25,8 @@ jobs:
           bash -n .github/workflows/scripts/delete-formula.sh
           bash -n .github/workflows/scripts/push-formula.sh
           bash -n .github/workflows/scripts/resolve-source-inputs.sh
+      - name: Publishing base regression
+        run: python3 test/publishing-base.py
       - name: Reject invalid source inputs
         run: |
           export GITHUB_OUTPUT="$RUNNER_TEMP/reject-source-repo"

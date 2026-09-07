@@ -33,6 +33,11 @@ and upgrades from this tap stop after users run `brew update`.
 
 ## Release Automation
 
+The reusable workflow checks out publishing tools at its own immutable workflow
+revision and checks out the Formula destination at current `main`. Callers can
+pin the workflow to a commit without freezing the Formula history. Source `ref`
+continues to select the package source, independently of these two checkouts.
+
 Projects can update this tap by calling the reusable workflow. The publishing
 repository provides a Formula spec, and this tap generates the Formula with the
 source archive metadata, audits it, installs it from source, tests it, and pushes

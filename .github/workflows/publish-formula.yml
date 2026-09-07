@@ -66,11 +66,18 @@ jobs:
           DRY_RUN: ${{ inputs.dry-run }}
           TOKEN: ${{ secrets.token }}
           DEPLOY_KEY: ${{ secrets.deploy_key }}
+      - name: checkout publishing tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: tap-tools
+          persist-credentials: false
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: steps.credential.outputs.mode == 'token'
         with:
           repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
+          ref: main
           token: ${{ secrets.token }}
           path: tap
           fetch-depth: 0
@@ -78,7 +85,7 @@ jobs:
         if: steps.credential.outputs.mode == 'deploy_key'
         with:
           repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
+          ref: main
           ssh-key: ${{ secrets.deploy_key }}
           path: tap
           fetch-depth: 0
@@ -86,13 +93,13 @@ jobs:
         if: steps.credential.outputs.mode == 'dry_run'
         with:
           repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
+          ref: main
           path: tap
           fetch-depth: 0
           persist-credentials: false
       - name: resolve source inputs
         id: source
-        run: bash tap/.github/workflows/scripts/resolve-source-inputs.sh
+        run: bash tap-tools/.github/workflows/scripts/resolve-source-inputs.sh
         env:
           INPUT_REPOSITORY: ${{ inputs.repository }}
           INPUT_REF: ${{ inputs.ref }}
@@ -105,7 +112,7 @@ jobs:
           persist-credentials: false
       - name: generate formula
         id: formula
-        uses: ./tap/actions/publish/formula
+        uses: ./tap-tools/actions/publish/formula
         with:
           tap-path: tap
           source-path: source
@@ -137,7 +144,7 @@ jobs:
         if: ${{ !inputs.dry-run }}
         id: commit_formula
         working-directory: tap
-        run: bash .github/workflows/scripts/commit-formula.sh
+        run: bash ../tap-tools/.github/workflows/scripts/commit-formula.sh
         env:
           FORMULA_PATH: ${{ steps.formula.outputs.formula-path }}
           FORMULA: ${{ inputs.formula }}
@@ -145,4 +152,4 @@ jobs:
       - name: push formula
         if: ${{ !inputs.dry-run && steps.commit_formula.outputs.changed == 'true' }}
         working-directory: tap
-        run: bash .github/workflows/scripts/push-formula.sh
+        run: bash ../tap-tools/.github/workflows/scripts/push-formula.sh
