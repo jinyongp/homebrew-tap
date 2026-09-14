@@ -181,7 +181,7 @@ esac
         *[f"    {platform}: {asset.replace('1.2.3', '{version}')}" for platform, asset in platform_assets.items()],
     ])
     formula = (tap / "Formula/example.rb").read_text()
-    assert 'version "1.2.3"' in formula
+    assert 'version "1.2.3"' not in formula
     assert "  depends_on :macos\n" not in formula
     assert "  depends_on :linux\n" not in formula
     assert formula.count("on_macos do") == 1

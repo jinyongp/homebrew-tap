@@ -548,7 +548,6 @@ if distribution["type"] == "source"
   content << "  sha256 #{source.fetch("sha256").dump}\n"
 else
   sources = distribution.fetch("sources")
-  content << "  version #{ENV.fetch("VERSION").dump}\n"
 end
 content << "  license #{render_license(license)}\n"
 content << "\n"
