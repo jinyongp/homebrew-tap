@@ -3,30 +3,57 @@ name: auto-merge homebrew-tap updates
 on:
   workflow_call:
 
+concurrency:
+  group: homebrew-tap-policy-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   auto-merge:
-    if: >-
-      github.event_name == 'pull_request_target' &&
-      github.event.pull_request.user.login == 'dependabot[bot]'
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: write
       pull-requests: write
+      statuses: write
     steps:
-      - name: Fetch Dependabot metadata
-        id: dependabot
-        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3
-        with:
-          github-token: ${{ github.token }}
-      - name: Check out authorization policy
+      - name: Mark policy pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$PR_HEAD_SHA" \
+            -f state=pending \
+            -f context=homebrew-tap/policy \
+            -f description="Reconciling homebrew-tap auto-merge policy" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+      - name: Check out policy automation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
           path: tap-automation
           persist-credentials: false
+      - name: Classify pull request
+        id: scope
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+            echo "managed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "managed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Fetch Dependabot metadata
+        if: steps.scope.outputs.managed == 'true'
+        id: dependabot
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3
+        with:
+          github-token: ${{ github.token }}
       - name: Collect pull request evidence
+        if: steps.scope.outputs.managed == 'true'
+        continue-on-error: true
+        id: authorization
         env:
           GH_TOKEN: ${{ github.token }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -77,8 +104,45 @@ jobs:
             --latest-homebrew-tap-sha "$latest_homebrew_tap_sha" \
             --base-workflows "$evidence/base-workflows" \
             --head-workflows "$evidence/head-workflows"
-      - name: Enable auto-merge
+      - name: Reconcile auto-merge policy
+        if: always()
+        id: reconcile
         env:
+          AUTHORIZATION_OUTCOME: ${{ steps.authorization.outcome }}
           GH_TOKEN: ${{ github.token }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_URL: ${{ github.event.pull_request.html_url }}
-        run: gh pr merge --auto --squash "$PR_URL"
+        run: bash tap-automation/.github/workflows/scripts/reconcile-homebrew-tap-policy.sh
+      - name: Report policy result
+        if: always()
+        env:
+          DESCRIPTION: ${{ steps.reconcile.outputs.description }}
+          GH_TOKEN: ${{ github.token }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          RECONCILE_OUTCOME: ${{ steps.reconcile.outcome }}
+        run: |
+          report_status() {
+            gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$PR_HEAD_SHA" \
+              -f state="$1" \
+              -f context=homebrew-tap/policy \
+              -f description="$2" \
+              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          }
+
+          if [ "$RECONCILE_OUTCOME" != "success" ]; then
+            report_status failure "Failed to reconcile homebrew-tap auto-merge policy"
+            if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+              auto_merge_enabled="$(
+                gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null'
+              )"
+              if [ "$auto_merge_enabled" = "true" ]; then
+                gh pr merge --disable-auto "$PR_URL"
+              fi
+            fi
+            exit 0
+          fi
+
+          report_status success "$DESCRIPTION"

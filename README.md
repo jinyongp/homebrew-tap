@@ -349,6 +349,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  statuses: write
 
 jobs:
   auto-merge:
@@ -356,15 +357,38 @@ jobs:
 ```
 
 Enable **Allow auto-merge** and **Allow squash merging** in the publishing
-repository, then make the `auto-merge` authorization job a required status
-check for its target branch. The required check ensures that a new commit
-cannot inherit an earlier authorization. Add the repository's regular CI
-checks to the same branch rule when the update must wait for them too.
+repository. The reusable workflow writes the stable `homebrew-tap/policy`
+commit status directly to every pull request head. For an approved Dependabot
+update it enables auto-merge for that exact head SHA. For other pull requests
+it leaves merging manual, and it disables auto-merge if a Dependabot update no
+longer satisfies the policy.
 
-The reusable workflow accepts only verified Dependabot pull requests whose
-complete dependency list contains only one or both `homebrew-tap` workflows
-above. It does not check out or run pull-request code. Other dependency updates
-and PRs with maintainer changes remain manual.
+Configure the publishing repository's `main` ruleset to require these checks:
+
+- `homebrew-tap/policy`, from the workflow above.
+- The stable `homebrew-check` from a regular `pull_request` dry run of
+  `publish-formula.yml` (the full context is normally
+  `<caller job> / homebrew-check`).
+- Any repository-specific CI checks that must pass before a release workflow
+  pin is merged.
+
+Run each workflow once before selecting its check in the ruleset UI. GitHub
+only offers recently observed checks. Require the stable `homebrew-check`, not
+its platform-specific `validate (...)` matrix jobs, so changing the supported
+OS set does not cause ruleset drift. The `pull_request_target` policy workflow
+and the regular `pull_request` dry-run workflow must both run for every pull
+request targeting the protected branch; a workflow that is skipped entirely
+cannot satisfy its required check.
+
+When adopting this setup in an existing publishing repository, manually merge
+the first trusted workflow-pin update if it still runs an older revision that
+does not emit `homebrew-tap/policy`. Require the two stable checks after the new
+revision has run once.
+
+The reusable workflow automatically merges only verified Dependabot pull
+requests whose complete dependency list contains only one or both
+`homebrew-tap` workflows above. It does not check out or run pull-request code.
+Other dependency updates and PRs with maintainer changes remain manual.
 
 The lower-level composite action is also available for custom workflows:
 

@@ -131,11 +131,32 @@ jobs:
           FORMULA: ${{ inputs.formula }}
         run: bash tap-tools/.github/workflows/scripts/validate-formula.sh
 
+  homebrew-check:
+    if: always()
+    needs:
+      - generate
+      - validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: checkout publishing tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: tap-tools
+          persist-credentials: false
+      - name: require successful generation and validation
+        env:
+          GENERATE_RESULT: ${{ needs.generate.result }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+        run: bash tap-tools/.github/workflows/scripts/require-formula-validation.sh
+
   publish:
     if: ${{ !inputs.dry-run }}
     needs:
       - generate
-      - validate
+      - homebrew-check
     runs-on: macos-latest
     timeout-minutes: 15
     steps:

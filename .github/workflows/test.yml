@@ -30,6 +30,8 @@ jobs:
           bash -n .github/workflows/scripts/commit-formula.sh
           bash -n .github/workflows/scripts/delete-formula.sh
           bash -n .github/workflows/scripts/push-formula.sh
+          bash -n .github/workflows/scripts/reconcile-homebrew-tap-policy.sh
+          bash -n .github/workflows/scripts/require-formula-validation.sh
           bash -n .github/workflows/scripts/resolve-source-inputs.sh
           bash -n .github/workflows/scripts/validate-formula.sh
       - name: Publishing base regression
