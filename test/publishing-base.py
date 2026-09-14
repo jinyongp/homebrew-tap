@@ -35,11 +35,15 @@ assert 'bash tap-tools/.github/workflows/scripts/resolve-source-inputs.sh' in wo
 assert 'bash tap-tools/.github/workflows/scripts/validate-formula.sh' in workflow
 assert 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4' in workflow
 assert workflow.count('actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4') == 2
+assert workflow.count('name: generated-formula-${{ inputs.formula }}') == 3
 assert 'Homebrew/actions/setup-homebrew@082c94ee19e776205cfa8e43802917d1425e2fe7 # main' in workflow
 assert 'fromJSON(needs.generate.outputs.runner-matrix)' in workflow
 assert 'runs-on: ${{ matrix.target.runner }}' in workflow
 assert 'validation-mode:' in workflow
 assert 'VALIDATION_MODE: ${{ inputs.validation-mode }}' in workflow
+setup_homebrew = workflow.index('- name: setup Homebrew')
+validation_checkout = workflow.index('- name: checkout publishing tools', workflow.index('  validate:'))
+assert setup_homebrew < validation_checkout
 assert '  homebrew-check:\n    if: always()' in workflow
 assert 'GENERATE_RESULT: ${{ needs.generate.result }}' in workflow
 assert 'VALIDATE_RESULT: ${{ needs.validate.result }}' in workflow

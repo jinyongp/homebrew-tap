@@ -111,7 +111,7 @@ jobs:
       - name: upload generated formula
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: generated-formula
+          name: generated-formula-${{ inputs.formula }}
           path: tap/Formula/${{ inputs.formula }}.rb
           if-no-files-found: error
           retention-days: 1
@@ -125,6 +125,11 @@ jobs:
       matrix:
         target: ${{ fromJSON(needs.generate.outputs.runner-matrix) }}
     steps:
+      - name: setup Homebrew
+        if: runner.os == 'Linux'
+        uses: Homebrew/actions/setup-homebrew@082c94ee19e776205cfa8e43802917d1425e2fe7 # main
+        with:
+          stable: true
       - name: checkout publishing tools
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -141,13 +146,8 @@ jobs:
       - name: download generated formula
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: generated-formula
+          name: generated-formula-${{ inputs.formula }}
           path: tap/Formula
-      - name: setup Homebrew
-        if: runner.os == 'Linux'
-        uses: Homebrew/actions/setup-homebrew@082c94ee19e776205cfa8e43802917d1425e2fe7 # main
-        with:
-          stable: true
       - name: validate formula
         env:
           TAP_PATH: tap
@@ -230,7 +230,7 @@ jobs:
       - name: download generated formula
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: generated-formula
+          name: generated-formula-${{ inputs.formula }}
           path: tap/Formula
       - name: commit formula
         id: commit_formula
