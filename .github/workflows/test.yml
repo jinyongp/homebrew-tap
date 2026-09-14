@@ -10,6 +10,16 @@ permissions:
   contents: read
 
 jobs:
+  github-release-e2e:
+    uses: ./.github/workflows/publish-formula.yml
+    with:
+      formula: homebrew-release-fixture
+      repository: jinyongp/homebrew-tap
+      ref: formula-fixture-v1.0.0
+      version: v1.0.0
+      dry-run: true
+      validation-mode: release
+
   test:
     runs-on: macos-latest
     timeout-minutes: 30

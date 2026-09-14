@@ -101,7 +101,7 @@ def normalize_workflows(workflows):
 
 
 def validate_workflows(base_workflows, head_workflows, metadata_dependencies,
-                       latest_homebrew_tap_sha):
+                       approved_homebrew_tap_sha):
     base_normalized, base_refs = normalize_workflows(base_workflows)
     head_normalized, head_refs = normalize_workflows(head_workflows)
     if base_normalized != head_normalized:
@@ -117,8 +117,8 @@ def validate_workflows(base_workflows, head_workflows, metadata_dependencies,
     all_refs = [ref for dependency_refs in head_refs.values() for ref in dependency_refs]
     if len(set(all_refs)) != 1:
         reject('homebrew-tap workflows must use the same commit SHA')
-    if all_refs[0] != latest_homebrew_tap_sha:
-        reject('homebrew-tap workflows must use the latest main commit SHA')
+    if all_refs[0] != approved_homebrew_tap_sha:
+        reject('homebrew-tap workflows must use the latest automation release SHA')
 
 
 def main():
@@ -128,19 +128,19 @@ def main():
     parser.add_argument('--files', type=Path, required=True)
     parser.add_argument('--expected-commit-count', type=int, required=True)
     parser.add_argument('--expected-file-count', type=int, required=True)
-    parser.add_argument('--latest-homebrew-tap-sha', required=True)
+    parser.add_argument('--approved-homebrew-tap-sha', required=True)
     parser.add_argument('--base-workflows', type=Path, required=True)
     parser.add_argument('--head-workflows', type=Path, required=True)
     args = parser.parse_args()
 
-    if FULL_SHA.fullmatch(args.latest_homebrew_tap_sha) is None:
-        reject('latest homebrew-tap main revision is not a full commit SHA')
+    if FULL_SHA.fullmatch(args.approved_homebrew_tap_sha) is None:
+        reject('approved homebrew-tap automation revision is not a full commit SHA')
     dependencies = validate_metadata(read_json(args.metadata))
     validate_commits(read_json(args.commits), args.expected_commit_count)
     validate_changed_files(read_json(args.files), args.expected_file_count)
     validate_workflows(
         args.base_workflows, args.head_workflows, dependencies,
-        args.latest_homebrew_tap_sha,
+        args.approved_homebrew_tap_sha,
     )
 
 

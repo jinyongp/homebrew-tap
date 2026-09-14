@@ -26,6 +26,10 @@ inputs:
     description: Formula spec YAML path inside the source repository.
     required: false
     default: ".github/homebrew/formula.yml"
+  validation-mode:
+    description: Validate a published release and its assets, or only render and audit the Formula spec.
+    required: false
+    default: "release"
 
 outputs:
   formula-path:
@@ -50,8 +54,11 @@ outputs:
     description: Expanded GitHub Release tag. Empty for source distributions.
     value: ${{ steps.update.outputs.release-tag }}
   runner-matrix:
-    description: JSON runner list for the operating systems declared by the distribution.
+    description: JSON platform and native runner list for the requested validation mode.
     value: ${{ steps.update.outputs.runner-matrix }}
+  validation-mode:
+    description: Applied validation mode, release or spec.
+    value: ${{ steps.update.outputs.validation-mode }}
 
 runs:
   using: composite
@@ -66,4 +73,6 @@ runs:
         REF: ${{ inputs.ref }}
         VERSION: ${{ inputs.version }}
         SPEC_PATH: ${{ inputs.spec-path }}
+        VALIDATION_MODE: ${{ inputs.validation-mode }}
+        GH_TOKEN: ${{ github.token }}
       run: bash "$GITHUB_ACTION_PATH/generate.sh"

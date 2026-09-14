@@ -97,7 +97,7 @@ Workflow usage:
 ```yaml
 jobs:
   homebrew:
-    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@<homebrew-tap-sha>
+    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@<automation-release-sha> # automation-v1.x.0
     with:
       formula: <formula>
       ref: ${{ github.sha }}
@@ -128,7 +128,7 @@ Workflow usage:
 ```yaml
 jobs:
   homebrew:
-    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@<homebrew-tap-sha>
+    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@<automation-release-sha> # automation-v1.x.0
     with:
       formula: <formula>
       ref: ${{ github.sha }}
@@ -190,8 +190,9 @@ Supported spec fields:
 Use `distribution.type: github-release` when the publishing repository uploads
 prebuilt binaries. The release tag and every asset name may contain the
 `{version}` placeholder. The workflow normalizes the Formula version first,
-downloads every declared asset from the publishing repository, calculates its
-SHA-256 checksum, and renders the selected operating-system branches.
+verifies the published immutable release and its source commit, reads each
+asset's GitHub SHA-256 digest (downloading only when the digest is unavailable),
+and renders the selected operating-system branches.
 
 ```yaml
 desc: Example tool
@@ -216,10 +217,21 @@ The expanded release tag and asset names are simple, URL-safe path segments.
 Declare at least one operating system. Each selected operating system requires
 both its `arm64` and `x86_64` assets; the other operating system may be omitted.
 A single-OS Formula receives `depends_on :macos` or `depends_on :linux`
-automatically. Upload the assets to the GitHub Release before calling the
-publishing workflow. Source distributions are validated on macOS as before;
-GitHub Release distributions are validated on each declared operating system
-before the Formula is committed.
+automatically. Every declared OS/architecture pair is installed and tested on
+a native GitHub-hosted runner before the Formula is committed.
+
+GitHub Release publishing requires a non-draft, published immutable release.
+Its tag must resolve to the same commit as `ref`, and every declared asset must
+be in the `uploaded` state. Enable immutable releases once in each publishing
+repository before creating releases:
+
+```sh
+gh api --method PUT repos/<owner>/<repo>/immutable-releases
+```
+
+This setting applies to releases created after it is enabled. Upload all assets
+before publishing the release; an immutable published release cannot have its
+tag or assets replaced.
 
 Call the reusable workflow after the release job uploads those assets. Pass the
 tag name as `version`; `ref` can remain the immutable source commit:
@@ -228,7 +240,7 @@ tag name as `version`; `ref` can remain the immutable source commit:
 jobs:
   homebrew:
     needs: release
-    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@<homebrew-tap-sha>
+    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@<automation-release-sha> # automation-v1.x.0
     with:
       formula: example
       ref: ${{ github.sha }}
@@ -280,6 +292,7 @@ Workflow inputs:
 | `version` | No | Short SHA for 40-character refs, otherwise `ref` |
 | `spec-path` | No | `.github/homebrew/formula.yml` |
 | `dry-run` | No | `false` |
+| `validation-mode` | No | `release`; use `spec` only with `dry-run: true` |
 
 When `repository` is different from the caller repository, `ref` is required.
 Tag-style versions are normalized for Homebrew: `refs/tags/v1.2.3`,
@@ -290,28 +303,33 @@ GitHub Release distributions should pass the release tag as `version` when
 
 ### Dry Run Check
 
-Add this to the publishing repository's regular check workflow so Formula
-spec, audit, install, and test failures are caught before release/tag
-publishing:
+Add this to the publishing repository's regular pull-request workflow. The
+`spec` mode renders and audits the Formula contract without requiring a future
+release or its assets to exist:
 
 ```yaml
 jobs:
   homebrew:
-    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@<homebrew-tap-sha>
+    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@<automation-release-sha> # automation-v1.x.0
     with:
       formula: <formula>
       dry-run: true
+      validation-mode: spec
 ```
 
 Dry runs do not require `token` or `deploy_key`, and they skip the formula commit
-and push steps. A GitHub Release dry run requires the declared release and all
-declared assets to exist already, so run it after uploading the release assets.
+and push steps. `validation-mode: spec` does not download or execute artifacts;
+the default `release` mode performs the full checksum, native install, and test
+validation and is required for actual publishing. A post-release workflow may
+also run `dry-run: true` with the default `release` mode as a full validation.
 
 ### Workflow Updates
 
 Publishing repositories should pin this tap's reusable workflows to the same
-full commit SHA. Dependabot then proposes updates to the latest commit on
-`homebrew-tap` `main`, while releases continue to use an immutable revision.
+full commit SHA and retain the adjacent `automation-v…` version comment.
+Dependabot then proposes the newest immutable automation release SHA. Formula-
+only commits on `homebrew-tap` do not create automation releases, so they do not
+cause workflow-pin churn in every publishing repository.
 
 Add this dedicated group to `.github/dependabot.yml` in the publishing
 repository. Keep other GitHub Actions in a separate group so unrelated updates
@@ -353,7 +371,7 @@ permissions:
 
 jobs:
   auto-merge:
-    uses: jinyongp/homebrew-tap/.github/workflows/auto-merge-homebrew-tap.yml@<homebrew-tap-sha>
+    uses: jinyongp/homebrew-tap/.github/workflows/auto-merge-homebrew-tap.yml@<automation-release-sha> # automation-v1.x.0
 ```
 
 Enable **Allow auto-merge** and **Allow squash merging** in the publishing
@@ -387,13 +405,14 @@ revision has run once.
 
 The reusable workflow automatically merges only verified Dependabot pull
 requests whose complete dependency list contains only one or both
-`homebrew-tap` workflows above. It does not check out or run pull-request code.
+`homebrew-tap` workflows above and whose new SHA is the newest published
+immutable `automation-v…` release. It does not check out or run pull-request code.
 Other dependency updates and PRs with maintainer changes remain manual.
 
 The lower-level composite action is also available for custom workflows:
 
 ```yaml
-- uses: jinyongp/homebrew-tap/actions/publish/formula@main
+- uses: jinyongp/homebrew-tap/actions/publish/formula@<automation-release-sha> # automation-v1.x.0
   with:
     tap-path: tap
     source-path: source

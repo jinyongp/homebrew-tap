@@ -9,6 +9,15 @@ set -euo pipefail
 : "${SPEC_PATH:?}"
 : "${GITHUB_OUTPUT:?}"
 
+VALIDATION_MODE="${VALIDATION_MODE:-release}"
+case "$VALIDATION_MODE" in
+  release | spec) ;;
+  *)
+    echo "validation-mode must be release or spec" >&2
+    exit 1
+    ;;
+esac
+
 reject_multiline() {
   case "$2" in
     *$'\n'* | *$'\r'*)
@@ -110,6 +119,7 @@ VERSION="$version" \
 RESOLVED_REF="$resolved_ref" \
 SOURCE_PATH="$SOURCE_PATH" \
 SPEC="$spec" \
+VALIDATION_MODE="$VALIDATION_MODE" \
 GITHUB_OUTPUT="$GITHUB_OUTPUT" \
 ruby <<'RUBY'
 require "digest"
@@ -153,6 +163,14 @@ def download_sha256(url)
   end
 end
 
+def github_json(path)
+  stdout, stderr, status = Open3.capture3("gh", "api", "--method", "GET", path)
+  fail_with("GitHub API request failed for #{path}: #{stderr.strip}") unless status.success?
+  JSON.parse(stdout)
+rescue JSON::ParserError => e
+  fail_with("GitHub API returned invalid JSON for #{path}: #{e.message}")
+end
+
 def expand_release_template(value, path, version)
   fail_with("#{path} must be a string") unless value.is_a?(String) && !value.empty?
   expanded = value.gsub("{version}", version)
@@ -167,13 +185,14 @@ def safe_release_segment(value, path)
   value
 end
 
-def resolve_distribution(spec, repository, version, resolved_ref)
+def resolve_distribution(spec, repository, version, resolved_ref, validation_mode)
   distribution = spec["distribution"]
   if distribution.nil?
     url = "https://github.com/#{repository}/archive/#{resolved_ref}.tar.gz"
+    checksum = validation_mode == "spec" ? "0" * 64 : download_sha256(url)
     return {
       "type" => "source",
-      "sources" => { "source" => { "url" => url, "sha256" => download_sha256(url) } },
+      "sources" => { "source" => { "url" => url, "sha256" => checksum } },
     }
   end
 
@@ -185,9 +204,10 @@ def resolve_distribution(spec, repository, version, resolved_ref)
     unknown = distribution.keys - %w[type]
     fail_with("unsupported distribution keys for source: #{unknown.join(", ")}") unless unknown.empty?
     url = "https://github.com/#{repository}/archive/#{resolved_ref}.tar.gz"
+    checksum = validation_mode == "spec" ? "0" * 64 : download_sha256(url)
     {
       "type" => "source",
-      "sources" => { "source" => { "url" => url, "sha256" => download_sha256(url) } },
+      "sources" => { "source" => { "url" => url, "sha256" => checksum } },
     }
   when "github-release"
     unknown = distribution.keys - %w[type tag assets]
@@ -215,13 +235,50 @@ def resolve_distribution(spec, repository, version, resolved_ref)
     end
 
     selected_platforms = systems.flat_map { |system| platforms_by_system.fetch(system) }
-    sources = selected_platforms.to_h do |platform|
+    expanded_assets = selected_platforms.to_h do |platform|
       asset = safe_release_segment(
         expand_release_template(assets.fetch(platform), "distribution.assets.#{platform}", version),
         "distribution.assets.#{platform}",
       )
-      url = "https://github.com/#{repository}/releases/download/#{tag}/#{asset}"
-      [platform, { "url" => url, "sha256" => download_sha256(url) }]
+      [platform, asset]
+    end
+
+    if validation_mode == "spec"
+      sources = expanded_assets.to_h do |platform, asset|
+        url = "https://github.com/#{repository}/releases/download/#{tag}/#{asset}"
+        [platform, { "url" => url, "sha256" => "0" * 64 }]
+      end
+      return { "type" => type, "tag" => tag, "systems" => systems, "sources" => sources }
+    end
+
+    release_path = "repos/#{repository}/releases/tags/#{tag}"
+    release = github_json(release_path)
+    fail_with("GitHub Release #{tag} is a draft") if release["draft"]
+    fail_with("GitHub Release #{tag} is not published") if release["published_at"].nil?
+    fail_with("GitHub Release #{tag} must be immutable") unless release["immutable"] == true
+
+    tag_commit = github_json("repos/#{repository}/commits/#{tag}")["sha"]
+    unless tag_commit.is_a?(String) && tag_commit.casecmp?(resolved_ref)
+      fail_with("GitHub Release tag #{tag} does not resolve to source commit #{resolved_ref}")
+    end
+
+    release_assets = release["assets"]
+    fail_with("GitHub Release #{tag} assets are unavailable") unless release_assets.is_a?(Array)
+    assets_by_name = release_assets.group_by { |asset| asset["name"] }
+    sources = expanded_assets.to_h do |platform, asset_name|
+      matches = assets_by_name.fetch(asset_name, [])
+      fail_with("GitHub Release #{tag} is missing asset #{asset_name}") if matches.empty?
+      fail_with("GitHub Release #{tag} contains duplicate asset #{asset_name}") unless matches.one?
+      asset = matches.first
+      fail_with("GitHub Release asset #{asset_name} is not uploaded") unless asset["state"] == "uploaded"
+      url = "https://github.com/#{repository}/releases/download/#{tag}/#{asset_name}"
+      digest = asset["digest"]
+      checksum = if digest.is_a?(String) && digest.match?(/\Asha256:[0-9a-fA-F]{64}\z/)
+        digest.delete_prefix("sha256:").downcase
+      else
+        download_sha256(url)
+      end
+      [platform, { "url" => url, "sha256" => checksum }]
     end
     { "type" => type, "tag" => tag, "systems" => systems, "sources" => sources }
   else
@@ -469,6 +526,7 @@ distribution = resolve_distribution(
   ENV.fetch("REPOSITORY"),
   ENV.fetch("VERSION"),
   ENV.fetch("RESOLVED_REF"),
+  ENV.fetch("VALIDATION_MODE"),
 )
 dependencies = dependency_lines(spec["dependencies"])
 options = option_lines(spec["options"])
@@ -505,10 +563,11 @@ if distribution["type"] == "github-release"
     arm = sources.fetch(arm_platform)
     intel = sources.fetch(intel_platform)
     content << "  on_#{os} do\n"
-    content << "    if Hardware::CPU.arm?\n"
+    content << "    on_arm do\n"
     content << "      url #{arm.fetch("url").dump}\n"
     content << "      sha256 #{arm.fetch("sha256").dump}\n"
-    content << "    else\n"
+    content << "    end\n"
+    content << "    on_intel do\n"
     content << "      url #{intel.fetch("url").dump}\n"
     content << "      sha256 #{intel.fetch("sha256").dump}\n"
     content << "    end\n"
@@ -569,8 +628,22 @@ content << "end\n"
 File.write(ENV.fetch("FORMULA_PATH"), content)
 
 source = distribution.fetch("sources")["source"]
-validation_systems = distribution["type"] == "source" ? ["macos"] : distribution.fetch("systems")
-runner_matrix = validation_systems.map { |system| system == "macos" ? "macos-latest" : "ubuntu-latest" }
+runner_matrix = if ENV.fetch("VALIDATION_MODE") == "spec"
+  [{ "platform" => "spec", "runner" => "ubuntu-latest" }]
+elsif distribution["type"] == "source"
+  [{ "platform" => "macos-arm64", "runner" => "macos-latest" }]
+else
+  runners = {
+    "macos-arm64" => "macos-latest",
+    "macos-x86_64" => "macos-15-intel",
+    "linux-arm64" => "ubuntu-24.04-arm",
+    "linux-x86_64" => "ubuntu-latest",
+  }
+  distribution.fetch("systems").flat_map do |system|
+    platforms = system == "macos" ? %w[macos-arm64 macos-x86_64] : %w[linux-arm64 linux-x86_64]
+    platforms.map { |platform| { "platform" => platform, "runner" => runners.fetch(platform) } }
+  end
+end
 File.open(ENV.fetch("GITHUB_OUTPUT"), "a") do |output|
   output.puts "formula-path=Formula/#{ENV.fetch("FORMULA")}.rb"
   output.puts "archive-url=#{source&.fetch("url", "") || ""}"
@@ -579,6 +652,7 @@ File.open(ENV.fetch("GITHUB_OUTPUT"), "a") do |output|
   output.puts "version=#{ENV.fetch("VERSION")}"
   output.puts "distribution=#{distribution.fetch("type")}"
   output.puts "release-tag=#{distribution.fetch("tag", "")}"
+  output.puts "validation-mode=#{ENV.fetch("VALIDATION_MODE")}"
   output.puts "runner-matrix=#{JSON.generate(runner_matrix)}"
 end
 RUBY

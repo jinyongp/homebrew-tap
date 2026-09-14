@@ -4,6 +4,15 @@ set -euo pipefail
 : "${TAP_PATH:?}"
 : "${FORMULA:?}"
 
+VALIDATION_MODE="${VALIDATION_MODE:-release}"
+case "$VALIDATION_MODE" in
+  release | spec) ;;
+  *)
+    echo "validation-mode must be release or spec" >&2
+    exit 1
+    ;;
+esac
+
 validation_root="$(mktemp -d)"
 validation_path="${validation_root}/homebrew-validation"
 validation_id="${GITHUB_RUN_ID:-$$}-${GITHUB_RUN_ATTEMPT:-1}"
@@ -31,5 +40,8 @@ brew trust --tap "$validation_path"
 brew tap "$validation_tap" "$validation_path"
 qualified_formula="${validation_tap}/${FORMULA}"
 brew audit --strict --formula "$qualified_formula"
+if [ "$VALIDATION_MODE" = "spec" ]; then
+  exit 0
+fi
 HOMEBREW_NO_INSTALL_FROM_API=1 brew install --build-from-source "$qualified_formula"
 brew test "$qualified_formula"

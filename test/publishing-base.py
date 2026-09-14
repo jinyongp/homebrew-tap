@@ -8,6 +8,8 @@ import tempfile
 root = Path(__file__).resolve().parents[1]
 workflow = (root / '.github/workflows/publish-formula.yml').read_text()
 auto_merge = (root / '.github/workflows/auto-merge-homebrew-tap.yml').read_text()
+automation_release = (root / '.github/workflows/publish-automation-release.yml').read_text()
+provider_test = (root / '.github/workflows/test.yml').read_text()
 validation = (root / '.github/workflows/scripts/validate-formula.sh').read_text()
 validation_result_script = root / '.github/workflows/scripts/require-formula-validation.sh'
 reconcile_script = root / '.github/workflows/scripts/reconcile-homebrew-tap-policy.sh'
@@ -16,7 +18,7 @@ reconcile_script = root / '.github/workflows/scripts/reconcile-homebrew-tap-poli
 def workflow_step_script(contents, step_name):
     marker = f'      - name: {step_name}\n'
     start = contents.index(marker) + len(marker)
-    end = contents.find('\n      - name:', start)
+    end = contents.find('\n      - ', start)
     block = contents[start:] if end == -1 else contents[start:end]
     run_marker = '        run: |\n'
     script = block[block.index(run_marker) + len(run_marker):]
@@ -24,6 +26,7 @@ def workflow_step_script(contents, step_name):
                    for line in script.splitlines(keepends=True))
 
 
+publishing_mode_script = workflow_step_script(workflow, 'validate publishing mode')
 final_policy_script = workflow_step_script(auto_merge, 'Report policy result')
 assert workflow.count('ref: main') == 4, 'Generation, validation, and publishing must use current tap main'
 assert workflow.count('ref: ${{ job.workflow_sha }}') == 4
@@ -34,11 +37,17 @@ assert 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4' i
 assert workflow.count('actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4') == 2
 assert 'Homebrew/actions/setup-homebrew@082c94ee19e776205cfa8e43802917d1425e2fe7 # main' in workflow
 assert 'fromJSON(needs.generate.outputs.runner-matrix)' in workflow
+assert 'runs-on: ${{ matrix.target.runner }}' in workflow
+assert 'validation-mode:' in workflow
+assert 'VALIDATION_MODE: ${{ inputs.validation-mode }}' in workflow
 assert '  homebrew-check:\n    if: always()' in workflow
 assert 'GENERATE_RESULT: ${{ needs.generate.result }}' in workflow
 assert 'VALIDATE_RESULT: ${{ needs.validate.result }}' in workflow
 assert 'bash tap-tools/.github/workflows/scripts/require-formula-validation.sh' in workflow
 assert '      - homebrew-check' in workflow
+assert 'formula: homebrew-release-fixture' in provider_test
+assert 'ref: formula-fixture-v1.0.0' in provider_test
+assert 'validation-mode: release' in provider_test
 trust_validation_tap = validation.index('brew trust --tap "$validation_path"')
 install_validation_tap = validation.index('brew tap "$validation_tap" "$validation_path"')
 assert trust_validation_tap < install_validation_tap, 'Validation tap must be trusted before Homebrew verifies it'
@@ -46,11 +55,16 @@ for name in ['commit-formula', 'push-formula']:
     assert f'bash ../tap-tools/.github/workflows/scripts/{name}.sh' in workflow
 
 assert "github.event_name == 'pull_request_target'" in auto_merge
-assert 'if: github.event_name == \'pull_request_target\'' in auto_merge
-assert 'if [ "$PR_AUTHOR" = "dependabot[bot]" ]' in auto_merge
+assert "github.event.pull_request.user.login == 'dependabot[bot]'" in auto_merge
 assert 'group: homebrew-tap-policy-${{ github.repository }}-${{ github.event.pull_request.number }}' in auto_merge
 assert 'cancel-in-progress: true' in auto_merge
-assert 'statuses: write' in auto_merge
+assert auto_merge.count('statuses: write') == 2
+assert auto_merge.count('contents: write') == 1
+assert auto_merge.count('pull-requests: write') == 1
+assert '  policy-start:' in auto_merge
+assert '  authorize:' in auto_merge
+assert '  reconcile:' in auto_merge
+assert '  report:' in auto_merge
 assert 'dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3' in auto_merge
 assert 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1' in auto_merge
 assert 'repository: ${{ job.workflow_repository }}' in auto_merge
@@ -59,19 +73,43 @@ assert 'persist-credentials: false' in auto_merge
 assert 'UPDATED_DEPENDENCIES' in auto_merge
 assert auto_merge.count('context=homebrew-tap/policy') == 2
 assert '-f state=pending' in auto_merge
-assert 'AUTHORIZATION_OUTCOME: ${{ steps.authorization.outcome }}' in auto_merge
+assert "AUTHORIZATION_OUTCOME: ${{ needs.policy-start.result == 'success' && needs.authorize.outputs.outcome || 'failure' }}" in auto_merge
 assert 'continue-on-error: true' in auto_merge
+assert 'startsWith("automation-v")' not in auto_merge
+assert 'startswith("automation-v")' in auto_merge
+assert '--approved-homebrew-tap-sha "$approved_homebrew_tap_sha"' in auto_merge
 pending_status = auto_merge.index('-f state=pending')
 policy_checkout = auto_merge.index('- name: Check out policy automation')
 authorization = auto_merge.index('id: authorization')
 reconcile = auto_merge.index('id: reconcile')
-final_status = auto_merge.index('RECONCILE_OUTCOME:')
+final_status = auto_merge.index('RECONCILE_RESULT:')
 assert pending_status < policy_checkout < authorization < reconcile < final_status
 assert 'tap-automation/' not in final_policy_script
 assert 'bash tap-automation/.github/workflows/scripts/reconcile-homebrew-tap-policy.sh' in auto_merge
 assert 'gh pr merge --auto --squash --match-head-commit "$PR_HEAD_SHA"' in reconcile_script.read_text()
 assert 'gh pr merge --disable-auto "$PR_URL"' in reconcile_script.read_text()
 assert 'ref: ${{ github.event.pull_request.head.sha }}' not in auto_merge
+
+assert 'TAG: automation-v1.${{ github.run_number }}.0' in automation_release
+assert '--target "$GITHUB_SHA"' in automation_release
+assert '--latest=false' in automation_release
+assert 'Published $TAG does not identify this immutable automation revision.' in automation_release
+assert '.github/workflows/publish-formula.yml' in automation_release
+assert 'actions/publish/formula/**' in automation_release
+
+for mode, dry_run, succeeds in [
+    ('release', 'false', True),
+    ('release', 'true', True),
+    ('spec', 'true', True),
+    ('spec', 'false', False),
+    ('unknown', 'true', False),
+]:
+    result = subprocess.run(
+        ['bash', '-c', publishing_mode_script],
+        env=dict(os.environ, VALIDATION_MODE=mode, DRY_RUN=dry_run),
+        capture_output=True,
+    )
+    assert (result.returncode == 0) == succeeds
 
 for generate_result in ['success', 'failure', 'cancelled', 'skipped']:
     for validate_result in ['success', 'failure', 'cancelled', 'skipped']:
@@ -168,8 +206,8 @@ fi
             PATH=f'{fake_bin}:{os.environ["PATH"]}',
             PR_AUTHOR=case.get('author', 'dependabot[bot]'),
             PR_HEAD_SHA='b' * 40,
-            PR_URL='https://github.com/owner/repo/pull/1',
-            RECONCILE_OUTCOME=case['outcome'],
+            POLICY_START_RESULT=case.get('policy_start', 'success'),
+            RECONCILE_RESULT=case['outcome'],
         )
         subprocess.run(
             ['bash', '-c', final_policy_script],
@@ -195,18 +233,15 @@ fi
             'outcome': 'failure', 'description': 'Ignored success description',
         })
     )
-    failure_calls = run_policy_report({
-        'outcome': 'failure',
-        'description': 'Ignored success description',
-        'auto_merge_enabled': 'true',
-    }).splitlines()
-    failure_status = next(
-        index for index, call in enumerate(failure_calls) if '-f state=failure' in call
+    assert '-f state=success' in run_policy_report({
+        'author': 'maintainer', 'outcome': 'skipped',
+        'description': '',
+    })
+    assert '-f description=Failed to initialize homebrew-tap policy' in (
+        run_policy_report({
+            'outcome': 'skipped', 'description': '', 'policy_start': 'failure',
+        })
     )
-    disable_auto_merge = failure_calls.index(
-        'pr merge --disable-auto https://github.com/owner/repo/pull/1'
-    )
-    assert failure_status < disable_auto_merge
 
 authorization_script = root / '.github/workflows/scripts/authorize-homebrew-tap-update.py'
 sha = 'a' * 40
@@ -256,7 +291,7 @@ def base_workflows_for(changed_dependencies):
 def authorized(metadata=None, commits=None, files=None, base_workflows=None,
                head_workflows=None,
                expected_commit_count=None, expected_file_count=None,
-               latest_sha=sha):
+               approved_sha=sha):
     metadata = [publish_dependency, auto_merge_dependency] if metadata is None else metadata
     commits = [dependabot_commit] if commits is None else commits
     files = changed_files_for([publish_dependency, auto_merge_dependency]) if files is None else files
@@ -288,7 +323,7 @@ def authorized(metadata=None, commits=None, files=None, base_workflows=None,
             '--files', str(files_path),
             '--expected-commit-count', str(expected_commit_count),
             '--expected-file-count', str(expected_file_count),
-            '--latest-homebrew-tap-sha', latest_sha,
+            '--approved-homebrew-tap-sha', approved_sha,
             '--base-workflows', str(base_workflows_path),
             '--head-workflows', str(head_workflows_path),
         ], text=True, capture_output=True, check=False).returncode == 0
@@ -355,7 +390,7 @@ assert not authorized(head_workflows={
     **workflow_contents,
     'release.yml': workflow_contents['release.yml'].replace('    uses:', '      uses:'),
 })
-assert not authorized(latest_sha='c' * 40)
+assert not authorized(approved_sha='c' * 40)
 
 with tempfile.TemporaryDirectory() as directory:
     path = Path(directory)

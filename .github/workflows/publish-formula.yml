@@ -26,6 +26,10 @@ on:
         required: false
         type: boolean
         default: false
+      validation-mode:
+        required: false
+        type: string
+        default: "release"
     secrets:
       token:
         required: false
@@ -67,6 +71,24 @@ jobs:
         env:
           INPUT_REPOSITORY: ${{ inputs.repository }}
           INPUT_REF: ${{ inputs.ref }}
+      - name: validate publishing mode
+        env:
+          DRY_RUN: ${{ inputs.dry-run }}
+          VALIDATION_MODE: ${{ inputs.validation-mode }}
+        run: |
+          case "$VALIDATION_MODE" in
+            release) ;;
+            spec)
+              if [ "$DRY_RUN" != "true" ]; then
+                echo "::error::validation-mode spec requires dry-run true."
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::validation-mode must be release or spec."
+              exit 1
+              ;;
+          esac
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ steps.source.outputs.repository }}
@@ -85,6 +107,7 @@ jobs:
           ref: ${{ steps.source.outputs.ref }}
           version: ${{ inputs.version }}
           spec-path: ${{ inputs.spec-path }}
+          validation-mode: ${{ inputs.validation-mode }}
       - name: upload generated formula
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -95,12 +118,12 @@ jobs:
 
   validate:
     needs: generate
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.target.runner }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(needs.generate.outputs.runner-matrix) }}
+        target: ${{ fromJSON(needs.generate.outputs.runner-matrix) }}
     steps:
       - name: checkout publishing tools
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -129,6 +152,7 @@ jobs:
         env:
           TAP_PATH: tap
           FORMULA: ${{ inputs.formula }}
+          VALIDATION_MODE: ${{ inputs.validation-mode }}
         run: bash tap-tools/.github/workflows/scripts/validate-formula.sh
 
   homebrew-check:

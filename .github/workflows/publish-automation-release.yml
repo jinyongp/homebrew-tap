@@ -1,0 +1,58 @@
+name: publish automation release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish-formula.yml
+      - .github/workflows/auto-merge-homebrew-tap.yml
+      - .github/workflows/publish-automation-release.yml
+      - .github/workflows/scripts/**
+      - actions/publish/formula/**
+      - scripts/setup-deploy-key.sh
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Publish immutable automation version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: automation-v1.${{ github.run_number }}.0
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            existing_sha="$(
+              gh api --method GET "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha
+            )"
+            immutable="$(
+              gh api --method GET "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .immutable
+            )"
+            if [ "$existing_sha" != "$GITHUB_SHA" ] || [ "$immutable" != "true" ]; then
+              echo "::error::Existing $TAG does not identify this immutable automation revision."
+              exit 1
+            fi
+            exit 0
+          fi
+
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes "Reusable Homebrew publishing automation at $GITHUB_SHA" \
+            --latest=false
+
+          published_sha="$(
+            gh api --method GET "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha
+          )"
+          immutable="$(
+            gh api --method GET "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .immutable
+          )"
+          if [ "$published_sha" != "$GITHUB_SHA" ] || [ "$immutable" != "true" ]; then
+            echo "::error::Published $TAG does not identify this immutable automation revision."
+            exit 1
+          fi

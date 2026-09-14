@@ -2,6 +2,7 @@
 
 from hashlib import sha256
 from pathlib import Path
+import json
 import os
 import subprocess
 import tempfile
@@ -53,6 +54,7 @@ with tempfile.TemporaryDirectory() as directory:
     git(source, "config", "user.name", "test")
     git(source, "config", "user.email", "test@example.invalid")
     git(source, "config", "commit.gpgsign", "false")
+    git(source, "config", "tag.gpgsign", "false")
     git(source, "config", "core.hooksPath", "/dev/null")
     spec_path = source / ".github/homebrew/formula.yml"
     spec_path.parent.mkdir(parents=True)
@@ -65,6 +67,8 @@ with tempfile.TemporaryDirectory() as directory:
         capture_output=True,
         check=True,
     ).stdout.strip()
+    release_tag = "formula-fixture-v1.2.3"
+    git(source, "tag", release_tag)
 
     for index, asset in enumerate(platform_assets.values()):
         (assets / asset).write_bytes(f"asset-{index}\n".encode())
@@ -74,6 +78,7 @@ with tempfile.TemporaryDirectory() as directory:
     curl.write_text(
         """#!/bin/sh
 set -eu
+[ "${FAKE_NETWORK_FAIL:-false}" != "true" ] || exit 99
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -o) output="$2"; shift 2 ;;
@@ -86,6 +91,36 @@ cp "$FAKE_RELEASE_DIR/${url##*/}" "$output"
     )
     curl.chmod(0o755)
 
+    release_json = workspace / "release.json"
+    base_release = {
+        "tag_name": release_tag,
+        "draft": False,
+        "immutable": True,
+        "published_at": "2026-09-14T00:00:00Z",
+        "assets": [
+            {
+                "name": asset,
+                "state": "uploaded",
+                "digest": f"sha256:{sha256((assets / asset).read_bytes()).hexdigest()}",
+            }
+            for asset in platform_assets.values()
+        ],
+    }
+    release_json.write_text(json.dumps(base_release))
+    gh = fake_bin / "gh"
+    gh.write_text(
+        """#!/bin/sh
+set -eu
+[ "${FAKE_NETWORK_FAIL:-false}" != "true" ] || exit 99
+case "$4" in
+  repos/*/releases/tags/*) cat "$FAKE_RELEASE_JSON" ;;
+  repos/*/commits/*) printf '{"sha":"%s"}\\n' "$FAKE_TAG_COMMIT" ;;
+  *) echo "unexpected GitHub API path: $4" >&2; exit 1 ;;
+esac
+"""
+    )
+    gh.chmod(0o755)
+
     base_env = dict(
         os.environ,
         TAP_PATH=str(tap),
@@ -94,18 +129,24 @@ cp "$FAKE_RELEASE_DIR/${url##*/}" "$output"
         REPOSITORY="owner/example",
         REF="release-commit",
         VERSION="v1.2.3",
+        VALIDATION_MODE="release",
         SPEC_PATH=".github/homebrew/formula.yml",
         FAKE_RELEASE_DIR=str(assets),
+        FAKE_RELEASE_JSON=str(release_json),
+        FAKE_TAG_COMMIT=resolved_ref,
+        GH_TOKEN="test-token",
         PATH=f"{fake_bin}:{os.environ['PATH']}",
     )
 
-    def generate(distribution, expected_error=None):
+    def generate(distribution, expected_error=None, env_overrides=None):
         spec_path.write_text(spec(distribution))
         output = workspace / "github-output"
         output.write_text("")
+        env = dict(base_env, GITHUB_OUTPUT=str(output))
+        env.update(env_overrides or {})
         result = subprocess.run(
             ["bash", str(generator)],
-            env=dict(base_env, GITHUB_OUTPUT=str(output)),
+            env=env,
             text=True,
             capture_output=True,
             check=False,
@@ -120,14 +161,22 @@ cp "$FAKE_RELEASE_DIR/${url##*/}" "$output"
     output = generate([])
     formula = (tap / "Formula/example.rb").read_text()
     assert "distribution=source" in output
-    assert 'runner-matrix=["macos-latest"]' in output
+    assert 'runner-matrix=[{"platform":"macos-arm64","runner":"macos-latest"}]' in output
     assert "  depends_on :macos\n" not in formula
     assert "  depends_on :linux\n" not in formula
+
+    output = generate([], env_overrides={
+        "VALIDATION_MODE": "spec", "FAKE_NETWORK_FAIL": "true",
+    })
+    formula = (tap / "Formula/example.rb").read_text()
+    assert f'sha256 "{"0" * 64}"' in formula
+    assert "validation-mode=spec" in output
+    assert 'runner-matrix=[{"platform":"spec","runner":"ubuntu-latest"}]' in output
 
     output = generate([
         "distribution:",
         "  type: github-release",
-        '  tag: "v{version}"',
+        f'  tag: "{release_tag}"',
         "  assets:",
         *[f"    {platform}: {asset.replace('1.2.3', '{version}')}" for platform, asset in platform_assets.items()],
     ])
@@ -139,7 +188,7 @@ cp "$FAKE_RELEASE_DIR/${url##*/}" "$output"
     assert formula.count("on_linux do") == 1
     def source_lines(platform):
         asset = platform_assets[platform]
-        url = f"https://github.com/owner/example/releases/download/v1.2.3/{asset}"
+        url = f"https://github.com/owner/example/releases/download/{release_tag}/{asset}"
         checksum = sha256((assets / asset).read_bytes()).hexdigest()
         return f'url "{url}"', f'sha256 "{checksum}"'
 
@@ -150,10 +199,11 @@ cp "$FAKE_RELEASE_DIR/${url##*/}" "$output"
         arm_url, arm_checksum = source_lines(arm_platform)
         intel_url, intel_checksum = source_lines(intel_platform)
         expected_block = f"""  on_{os_name} do
-    if Hardware::CPU.arm?
+    on_arm do
       {arm_url}
       {arm_checksum}
-    else
+    end
+    on_intel do
       {intel_url}
       {intel_checksum}
     end
@@ -161,8 +211,8 @@ cp "$FAKE_RELEASE_DIR/${url##*/}" "$output"
 """
         assert expected_block in formula
     assert "distribution=github-release" in output
-    assert "release-tag=v1.2.3" in output
-    assert 'runner-matrix=["macos-latest","ubuntu-latest"]' in output
+    assert f"release-tag={release_tag}" in output
+    assert 'runner-matrix=[{"platform":"macos-arm64","runner":"macos-latest"},{"platform":"macos-x86_64","runner":"macos-15-intel"},{"platform":"linux-arm64","runner":"ubuntu-24.04-arm"},{"platform":"linux-x86_64","runner":"ubuntu-latest"}]' in output
     assert "archive-url=\n" in output
     assert "sha256=\n" in output
 
@@ -170,7 +220,7 @@ cp "$FAKE_RELEASE_DIR/${url##*/}" "$output"
     output = generate([
         "distribution:",
         "  type: github-release",
-        '  tag: "v{version}"',
+        f'  tag: "{release_tag}"',
         "  assets:",
         *[f"    {platform}: {asset}" for platform, asset in macos_assets.items()],
     ])
@@ -178,13 +228,13 @@ cp "$FAKE_RELEASE_DIR/${url##*/}" "$output"
     assert "  depends_on :macos\n" in formula
     assert "  on_macos do\n" in formula
     assert "  on_linux do\n" not in formula
-    assert 'runner-matrix=["macos-latest"]' in output
+    assert 'runner-matrix=[{"platform":"macos-arm64","runner":"macos-latest"},{"platform":"macos-x86_64","runner":"macos-15-intel"}]' in output
 
     linux_assets = {key: value for key, value in platform_assets.items() if key.startswith("linux-")}
     output = generate([
         "distribution:",
         "  type: github-release",
-        '  tag: "v{version}"',
+        f'  tag: "{release_tag}"',
         "  assets:",
         *[f"    {platform}: {asset}" for platform, asset in linux_assets.items()],
     ])
@@ -192,7 +242,104 @@ cp "$FAKE_RELEASE_DIR/${url##*/}" "$output"
     assert "  depends_on :linux\n" in formula
     assert "  on_macos do\n" not in formula
     assert "  on_linux do\n" in formula
-    assert 'runner-matrix=["ubuntu-latest"]' in output
+    assert 'runner-matrix=[{"platform":"linux-arm64","runner":"ubuntu-24.04-arm"},{"platform":"linux-x86_64","runner":"ubuntu-latest"}]' in output
+
+    future_tag = "formula-fixture-v9.9.9"
+    output = generate([
+        "distribution:",
+        "  type: github-release",
+        f'  tag: "{future_tag}"',
+        "  assets:",
+        *[f"    {platform}: {asset}" for platform, asset in platform_assets.items()],
+    ], env_overrides={"VALIDATION_MODE": "spec", "FAKE_NETWORK_FAIL": "true"})
+    formula = (tap / "Formula/example.rb").read_text()
+    assert f"/releases/download/{future_tag}/" in formula
+    assert formula.count(f'sha256 "{"0" * 64}"') == 4
+    assert "validation-mode=spec" in output
+    assert 'runner-matrix=[{"platform":"spec","runner":"ubuntu-latest"}]' in output
+
+    release_json.write_text(json.dumps({**base_release, "draft": True}))
+    generate([
+        "distribution:",
+        "  type: github-release",
+        f'  tag: "{release_tag}"',
+        "  assets:",
+        *[f"    {platform}: {asset}" for platform, asset in platform_assets.items()],
+    ], f"GitHub Release {release_tag} is a draft")
+
+    release_json.write_text(json.dumps({**base_release, "published_at": None}))
+    generate([
+        "distribution:",
+        "  type: github-release",
+        f'  tag: "{release_tag}"',
+        "  assets:",
+        *[f"    {platform}: {asset}" for platform, asset in platform_assets.items()],
+    ], f"GitHub Release {release_tag} is not published")
+
+    release_json.write_text(json.dumps({**base_release, "immutable": False}))
+    generate([
+        "distribution:",
+        "  type: github-release",
+        f'  tag: "{release_tag}"',
+        "  assets:",
+        *[f"    {platform}: {asset}" for platform, asset in platform_assets.items()],
+    ], f"GitHub Release {release_tag} must be immutable")
+
+    missing_asset_release = json.loads(json.dumps(base_release))
+    missing_asset_release["assets"] = missing_asset_release["assets"][1:]
+    release_json.write_text(json.dumps(missing_asset_release))
+    generate([
+        "distribution:",
+        "  type: github-release",
+        f'  tag: "{release_tag}"',
+        "  assets:",
+        *[f"    {platform}: {asset}" for platform, asset in platform_assets.items()],
+    ], f"GitHub Release {release_tag} is missing asset")
+
+    pending_asset_release = json.loads(json.dumps(base_release))
+    pending_asset_release["assets"][0]["state"] = "new"
+    release_json.write_text(json.dumps(pending_asset_release))
+    generate([
+        "distribution:",
+        "  type: github-release",
+        f'  tag: "{release_tag}"',
+        "  assets:",
+        *[f"    {platform}: {asset}" for platform, asset in platform_assets.items()],
+    ], "GitHub Release asset " + list(platform_assets.values())[0] + " is not uploaded")
+
+    duplicate_asset_release = json.loads(json.dumps(base_release))
+    duplicate_asset_release["assets"].append(duplicate_asset_release["assets"][0])
+    release_json.write_text(json.dumps(duplicate_asset_release))
+    generate([
+        "distribution:",
+        "  type: github-release",
+        f'  tag: "{release_tag}"',
+        "  assets:",
+        *[f"    {platform}: {asset}" for platform, asset in platform_assets.items()],
+    ], f"GitHub Release {release_tag} contains duplicate asset")
+
+    release_json.write_text(json.dumps(base_release))
+    generate([
+        "distribution:",
+        "  type: github-release",
+        f'  tag: "{release_tag}"',
+        "  assets:",
+        *[f"    {platform}: {asset}" for platform, asset in platform_assets.items()],
+    ], f"GitHub Release tag {release_tag} does not resolve to source commit", {
+        "FAKE_TAG_COMMIT": "f" * 40,
+    })
+
+    fallback_release = json.loads(json.dumps(base_release))
+    fallback_release["assets"][0]["digest"] = None
+    release_json.write_text(json.dumps(fallback_release))
+    generate([
+        "distribution:",
+        "  type: github-release",
+        f'  tag: "{release_tag}"',
+        "  assets:",
+        *[f"    {platform}: {asset}" for platform, asset in platform_assets.items()],
+    ])
+    release_json.write_text(json.dumps(base_release))
 
     generate([
         "distribution:",
