@@ -1,0 +1,17 @@
+desc: Homebrew GitHub Release validation fixture
+homepage: https://github.com/jinyongp/homebrew-tap
+license: MIT
+distribution:
+  type: github-release
+  tag: formula-fixture-v{version}
+  assets:
+    macos-arm64: homebrew-release-fixture_macos_arm64.tar.gz
+    macos-x86_64: homebrew-release-fixture_macos_x86_64.tar.gz
+    linux-arm64: homebrew-release-fixture_linux_arm64.tar.gz
+    linux-x86_64: homebrew-release-fixture_linux_x86_64.tar.gz
+install: |
+  bin.install "homebrew-release-fixture"
+test: |
+  expected_os = OS.mac? ? "macos" : "linux"
+  expected_arch = Hardware::CPU.arm? ? "arm64" : "x86_64"
+  assert_match "1.0.0 #{expected_os}-#{expected_arch}", shell_output("#{bin}/homebrew-release-fixture --version")
