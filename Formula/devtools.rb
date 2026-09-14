@@ -1,9 +1,9 @@
 class Devtools < Formula
   desc "Agent-first developer environment and task management"
   homepage "https://github.com/jinyongp/devtools"
-  url "https://github.com/jinyongp/devtools/archive/e9395ab132b9a623fa3b6408e41d99b3caab452a.tar.gz"
-  version "0.9.0"
-  sha256 "b8cfbe9b3e3abe35162940ed81025a0506d9c3340eb4a9c43b7a2ba3a26d04cd"
+  url "https://github.com/jinyongp/devtools/archive/3f521761a51761810c11475005a594724cd56817.tar.gz"
+  version "0.10.0"
+  sha256 "e935d3631b32115fb9289e9182d00ee779f6f0e416e938e44822c869cc708d8d"
   license "MIT"
 
   depends_on "go" => :build
