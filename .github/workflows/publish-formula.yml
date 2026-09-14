@@ -135,6 +135,7 @@ jobs:
           git -C "$validation_tap" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C "$validation_tap" add -A
           git -C "$validation_tap" commit -m "test: validate $FORMULA" >/dev/null
+          brew trust --tap "$validation_tap"
           brew tap jinyongp/validation "$validation_tap"
           qualified_formula="jinyongp/validation/$FORMULA"
           brew audit --strict --formula "$qualified_formula"
