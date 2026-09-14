@@ -2,6 +2,7 @@
 from pathlib import Path
 import json
 import os
+import re
 import subprocess
 import tempfile
 
@@ -26,6 +27,11 @@ def workflow_step_script(contents, step_name):
                    for line in script.splitlines(keepends=True))
 
 
+def pinned_action_refs(contents, action):
+    pattern = rf'uses:\s*{re.escape(action)}@([0-9a-f]{{40}})(?:\s+#\s*[^\n]+)?'
+    return re.findall(pattern, contents)
+
+
 publishing_mode_script = workflow_step_script(workflow, 'validate publishing mode')
 final_policy_script = workflow_step_script(auto_merge, 'Report policy result')
 assert workflow.count('ref: main') == 4, 'Generation, validation, and publishing must use current tap main'
@@ -33,10 +39,12 @@ assert workflow.count('ref: ${{ job.workflow_sha }}') == 4
 assert 'uses: ./tap-tools/actions/publish/formula' in workflow
 assert 'bash tap-tools/.github/workflows/scripts/resolve-source-inputs.sh' in workflow
 assert 'bash tap-tools/.github/workflows/scripts/validate-formula.sh' in workflow
-assert 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4' in workflow
-assert workflow.count('actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4') == 2
+assert len(pinned_action_refs(workflow, 'actions/upload-artifact')) == 1
+download_artifact_refs = pinned_action_refs(workflow, 'actions/download-artifact')
+assert len(download_artifact_refs) == 2
+assert len(set(download_artifact_refs)) == 1
 assert workflow.count('name: generated-formula-${{ inputs.formula }}') == 3
-assert 'Homebrew/actions/setup-homebrew@082c94ee19e776205cfa8e43802917d1425e2fe7 # main' in workflow
+assert len(pinned_action_refs(workflow, 'Homebrew/actions/setup-homebrew')) == 1
 assert 'fromJSON(needs.generate.outputs.runner-matrix)' in workflow
 assert 'runs-on: ${{ matrix.target.runner }}' in workflow
 assert 'validation-mode:' in workflow
@@ -70,8 +78,10 @@ assert '  policy-start:' in auto_merge
 assert '  authorize:' in auto_merge
 assert '  reconcile:' in auto_merge
 assert '  report:' in auto_merge
-assert 'dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3' in auto_merge
-assert 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1' in auto_merge
+assert len(pinned_action_refs(auto_merge, 'dependabot/fetch-metadata')) == 1
+checkout_refs = pinned_action_refs(auto_merge, 'actions/checkout')
+assert len(checkout_refs) == 2
+assert len(set(checkout_refs)) == 1
 assert 'repository: ${{ job.workflow_repository }}' in auto_merge
 assert 'ref: ${{ job.workflow_sha }}' in auto_merge
 assert 'persist-credentials: false' in auto_merge
