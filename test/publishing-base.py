@@ -55,6 +55,7 @@ assert 'validation-mode: release' in provider_test
 trust_validation_tap = validation.index('brew trust --tap "$validation_path"')
 install_validation_tap = validation.index('brew tap "$validation_tap" "$validation_path"')
 assert trust_validation_tap < install_validation_tap, 'Validation tap must be trusted before Homebrew verifies it'
+assert 'HOMEBREW_NO_INSTALL_FROM_API' not in validation
 for name in ['commit-formula', 'push-formula']:
     assert f'bash ../tap-tools/.github/workflows/scripts/{name}.sh' in workflow
 

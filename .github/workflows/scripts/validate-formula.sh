@@ -43,5 +43,5 @@ brew audit --strict --formula "$qualified_formula"
 if [ "$VALIDATION_MODE" = "spec" ]; then
   exit 0
 fi
-HOMEBREW_NO_INSTALL_FROM_API=1 brew install --build-from-source "$qualified_formula"
+brew install --build-from-source "$qualified_formula"
 brew test "$qualified_formula"
