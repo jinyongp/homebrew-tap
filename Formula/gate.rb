@@ -1,38 +1,32 @@
 class Gate < Formula
   desc "Local-dev global HTTPS reverse proxy and port registry"
   homepage "https://github.com/jinyongp/gate"
-  version "2.11.4"
   license "MIT"
 
   on_macos do
-    if Hardware::CPU.arm?
-      url "https://github.com/jinyongp/gate/releases/download/v2.11.4/gate-darwin-arm64", using: :nounzip
-      sha256 "7e4fa15a30d32a7b76b61a1d4b884cad732746ee2f33cef16d5c16eb5dea5b27"
-    else
-      url "https://github.com/jinyongp/gate/releases/download/v2.11.4/gate-darwin-amd64", using: :nounzip
-      sha256 "fa6cd167e94b683e21e3bff96d38f226b077dd596cc2482e2855b7f9e0fb1f6b"
+    on_arm do
+      url "https://github.com/jinyongp/gate/releases/download/v3.0.0/gate-darwin-arm64"
+      sha256 "e4c5c9adf940845528738014382ff1a0c55e7551774c885f2f30a412d0384612"
+    end
+    on_intel do
+      url "https://github.com/jinyongp/gate/releases/download/v3.0.0/gate-darwin-amd64"
+      sha256 "efe5f205171739196c52f775b4e6f16fdb348032e6ede445faf4e5d077287f83"
     end
   end
 
   on_linux do
-    if Hardware::CPU.arm?
-      url "https://github.com/jinyongp/gate/releases/download/v2.11.4/gate-linux-arm64", using: :nounzip
-      sha256 "8977792d9d006392fc6c34a7e6dd990fed0ff2cf4544c6a2f5948380c20e0dc8"
-    else
-      url "https://github.com/jinyongp/gate/releases/download/v2.11.4/gate-linux-amd64", using: :nounzip
-      sha256 "9d0ab73d68662aa6e6e0f681875256d811ef62112424a294a38a22d2ff717916"
+    on_arm do
+      url "https://github.com/jinyongp/gate/releases/download/v3.0.0/gate-linux-arm64"
+      sha256 "82f54c13ddfe60c8403e4f2b1600d8a5636558a1f15d4314890a3c9a95549d58"
+    end
+    on_intel do
+      url "https://github.com/jinyongp/gate/releases/download/v3.0.0/gate-linux-amd64"
+      sha256 "6f8f390d4f5dc9f5b70299fac4144596b91d4d369facf8a1dd42e49a4c8113dc"
     end
   end
 
   def install
-    asset = if OS.mac?
-      Hardware::CPU.arm? ? "gate-darwin-arm64" : "gate-darwin-amd64"
-    elsif OS.linux?
-      Hardware::CPU.arm? ? "gate-linux-arm64" : "gate-linux-amd64"
-    else
-      odie "unsupported platform"
-    end
-
+    asset = Dir["gate-*"].first
     chmod 0755, asset
     bin.install asset => "gate"
     generate_completions_from_executable(bin/"gate", "completion")
