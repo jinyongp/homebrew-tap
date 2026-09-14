@@ -6,12 +6,14 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 workflow = (root / '.github/workflows/publish-formula.yml').read_text()
+validation = (root / '.github/workflows/scripts/validate-formula.sh').read_text()
 assert workflow.count('ref: main') == 3, 'All credential modes must use current tap main'
 assert workflow.count('ref: ${{ job.workflow_sha }}') == 1
 assert 'uses: ./tap-tools/actions/publish/formula' in workflow
 assert 'bash tap-tools/.github/workflows/scripts/resolve-source-inputs.sh' in workflow
-trust_validation_tap = workflow.index('brew trust --tap "$validation_tap"')
-install_validation_tap = workflow.index('brew tap jinyongp/validation "$validation_tap"')
+assert 'bash tap-tools/.github/workflows/scripts/validate-formula.sh' in workflow
+trust_validation_tap = validation.index('brew trust --tap "$validation_path"')
+install_validation_tap = validation.index('brew tap "$validation_tap" "$validation_path"')
 assert trust_validation_tap < install_validation_tap, 'Validation tap must be trusted before Homebrew verifies it'
 for name in ['commit-formula', 'push-formula']:
     assert f'bash ../tap-tools/.github/workflows/scripts/{name}.sh' in workflow

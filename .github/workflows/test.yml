@@ -3,10 +3,16 @@ name: test
 on:
   push:
   pull_request:
+  schedule:
+    - cron: "17 9 * * 1"
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -25,6 +31,7 @@ jobs:
           bash -n .github/workflows/scripts/delete-formula.sh
           bash -n .github/workflows/scripts/push-formula.sh
           bash -n .github/workflows/scripts/resolve-source-inputs.sh
+          bash -n .github/workflows/scripts/validate-formula.sh
       - name: Publishing base regression
         run: python3 test/publishing-base.py
       - name: Reject invalid source inputs
@@ -260,3 +267,12 @@ jobs:
           expect_generation_failure reject-unquoted-date "formula spec YAML is invalid"
 
           expect_generation_failure reject-repository "repository must be owner/name, got: owner/repo/extra" fixture owner/repo/extra
+
+  publish-dry-run:
+    uses: ./.github/workflows/publish-formula.yml
+    with:
+      formula: homebrew-tap-fixture
+      repository: ${{ github.repository }}
+      ref: ${{ github.sha }}
+      spec-path: test/fixtures/e2e/formula.yml
+      dry-run: true

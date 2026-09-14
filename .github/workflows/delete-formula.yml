@@ -16,6 +16,7 @@ on:
 jobs:
   delete:
     runs-on: macos-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
