@@ -32,41 +32,22 @@ on:
       deploy_key:
         required: false
 
+concurrency:
+  group: formula-${{ inputs.formula }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
-  publish:
+  generate:
     runs-on: macos-latest
-    timeout-minutes: 45
-    concurrency:
-      group: formula-${{ inputs.formula }}
-      cancel-in-progress: false
-    permissions:
-      contents: read
+    timeout-minutes: 20
+    outputs:
+      formula-path: ${{ steps.formula.outputs.formula-path }}
+      runner-matrix: ${{ steps.formula.outputs.runner-matrix }}
+      version: ${{ steps.formula.outputs.version }}
     steps:
-      - name: select credential
-        id: credential
-        run: |
-          if [ "$DRY_RUN" = "true" ]; then
-            echo "mode=dry_run" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ -n "$TOKEN" ] && [ -n "$DEPLOY_KEY" ]; then
-            echo "::error::Provide either token or deploy_key, not both."
-            exit 1
-          fi
-          if [ -n "$DEPLOY_KEY" ]; then
-            echo "mode=deploy_key" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ -n "$TOKEN" ]; then
-            echo "mode=token" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "::error::Provide token or deploy_key to publish the formula."
-          exit 1
-        env:
-          DRY_RUN: ${{ inputs.dry-run }}
-          TOKEN: ${{ secrets.token }}
-          DEPLOY_KEY: ${{ secrets.deploy_key }}
       - name: checkout publishing tools
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -75,28 +56,10 @@ jobs:
           path: tap-tools
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.credential.outputs.mode == 'token'
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: main
-          token: ${{ secrets.token }}
-          path: tap
-          fetch-depth: 0
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.credential.outputs.mode == 'deploy_key'
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: main
-          ssh-key: ${{ secrets.deploy_key }}
-          path: tap
-          fetch-depth: 0
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.credential.outputs.mode == 'dry_run'
         with:
           repository: ${{ job.workflow_repository }}
           ref: main
           path: tap
-          fetch-depth: 0
           persist-credentials: false
       - name: resolve source inputs
         id: source
@@ -122,21 +85,117 @@ jobs:
           ref: ${{ steps.source.outputs.ref }}
           version: ${{ inputs.version }}
           spec-path: ${{ inputs.spec-path }}
+      - name: upload generated formula
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: generated-formula
+          path: tap/Formula/${{ inputs.formula }}.rb
+          if-no-files-found: error
+          retention-days: 1
+
+  validate:
+    needs: generate
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.generate.outputs.runner-matrix) }}
+    steps:
+      - name: checkout publishing tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: tap-tools
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: main
+          path: tap
+          persist-credentials: false
+      - name: download generated formula
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: generated-formula
+          path: tap/Formula
+      - name: setup Homebrew
+        if: runner.os == 'Linux'
+        uses: Homebrew/actions/setup-homebrew@082c94ee19e776205cfa8e43802917d1425e2fe7 # main
+        with:
+          stable: true
       - name: validate formula
         env:
           TAP_PATH: tap
           FORMULA: ${{ inputs.formula }}
         run: bash tap-tools/.github/workflows/scripts/validate-formula.sh
+
+  publish:
+    if: ${{ !inputs.dry-run }}
+    needs:
+      - generate
+      - validate
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: select credential
+        id: credential
+        run: |
+          if [ -n "$TOKEN" ] && [ -n "$DEPLOY_KEY" ]; then
+            echo "::error::Provide either token or deploy_key, not both."
+            exit 1
+          fi
+          if [ -n "$DEPLOY_KEY" ]; then
+            echo "mode=deploy_key" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -n "$TOKEN" ]; then
+            echo "mode=token" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::error::Provide token or deploy_key to publish the formula."
+          exit 1
+        env:
+          TOKEN: ${{ secrets.token }}
+          DEPLOY_KEY: ${{ secrets.deploy_key }}
+      - name: checkout publishing tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: tap-tools
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.credential.outputs.mode == 'token'
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: main
+          token: ${{ secrets.token }}
+          path: tap
+          fetch-depth: 0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.credential.outputs.mode == 'deploy_key'
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: main
+          ssh-key: ${{ secrets.deploy_key }}
+          path: tap
+          fetch-depth: 0
+      - name: download generated formula
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: generated-formula
+          path: tap/Formula
       - name: commit formula
-        if: ${{ !inputs.dry-run }}
         id: commit_formula
         working-directory: tap
         run: bash ../tap-tools/.github/workflows/scripts/commit-formula.sh
         env:
-          FORMULA_PATH: ${{ steps.formula.outputs.formula-path }}
+          FORMULA_PATH: ${{ needs.generate.outputs.formula-path }}
           FORMULA: ${{ inputs.formula }}
-          VERSION: ${{ steps.formula.outputs.version }}
+          VERSION: ${{ needs.generate.outputs.version }}
       - name: push formula
-        if: ${{ !inputs.dry-run && steps.commit_formula.outputs.changed == 'true' }}
+        if: steps.commit_formula.outputs.changed == 'true'
         working-directory: tap
         run: bash ../tap-tools/.github/workflows/scripts/push-formula.sh

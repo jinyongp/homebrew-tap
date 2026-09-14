@@ -1,5 +1,5 @@
 name: Publish Homebrew formula
-description: Generate a Homebrew formula from a caller-provided formula spec.
+description: Generate a source or GitHub Release binary Homebrew formula from a caller-provided spec.
 
 inputs:
   tap-path:
@@ -16,10 +16,10 @@ inputs:
     description: GitHub repository in owner/name form.
     required: true
   ref:
-    description: Git ref, tag, branch, or commit SHA to archive.
+    description: Git ref, tag, branch, or commit SHA associated with the checked-out spec. Source distributions archive the resolved checkout.
     required: true
   version:
-    description: Formula version. Defaults to a short SHA for 40-character refs, otherwise ref. Tag prefixes and numeric v prefixes are stripped.
+    description: Formula version. Defaults to a short SHA for 40-character refs, otherwise ref. Numeric v prefixes are stripped and the normalized value expands {version} in release templates.
     required: false
     default: ""
   spec-path:
@@ -32,10 +32,10 @@ outputs:
     description: Relative path to the generated formula.
     value: ${{ steps.update.outputs.formula-path }}
   archive-url:
-    description: Source archive URL used by the formula.
+    description: Source archive URL used by the formula. Empty for GitHub Release distributions.
     value: ${{ steps.update.outputs.archive-url }}
   sha256:
-    description: Source archive SHA-256 checksum.
+    description: Source archive SHA-256 checksum. Empty for GitHub Release distributions.
     value: ${{ steps.update.outputs.sha256 }}
   resolved-ref:
     description: Immutable commit SHA used by the source archive URL.
@@ -43,6 +43,15 @@ outputs:
   version:
     description: Formula version used by the generated formula.
     value: ${{ steps.update.outputs.version }}
+  distribution:
+    description: Formula distribution type, source or github-release.
+    value: ${{ steps.update.outputs.distribution }}
+  release-tag:
+    description: Expanded GitHub Release tag. Empty for source distributions.
+    value: ${{ steps.update.outputs.release-tag }}
+  runner-matrix:
+    description: JSON runner list for the operating systems declared by the distribution.
+    value: ${{ steps.update.outputs.runner-matrix }}
 
 runs:
   using: composite

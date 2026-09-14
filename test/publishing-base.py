@@ -9,11 +9,15 @@ root = Path(__file__).resolve().parents[1]
 workflow = (root / '.github/workflows/publish-formula.yml').read_text()
 auto_merge = (root / '.github/workflows/auto-merge-homebrew-tap.yml').read_text()
 validation = (root / '.github/workflows/scripts/validate-formula.sh').read_text()
-assert workflow.count('ref: main') == 3, 'All credential modes must use current tap main'
-assert workflow.count('ref: ${{ job.workflow_sha }}') == 1
+assert workflow.count('ref: main') == 4, 'Generation, validation, and publishing must use current tap main'
+assert workflow.count('ref: ${{ job.workflow_sha }}') == 3
 assert 'uses: ./tap-tools/actions/publish/formula' in workflow
 assert 'bash tap-tools/.github/workflows/scripts/resolve-source-inputs.sh' in workflow
 assert 'bash tap-tools/.github/workflows/scripts/validate-formula.sh' in workflow
+assert 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4' in workflow
+assert workflow.count('actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4') == 2
+assert 'Homebrew/actions/setup-homebrew@082c94ee19e776205cfa8e43802917d1425e2fe7 # main' in workflow
+assert 'fromJSON(needs.generate.outputs.runner-matrix)' in workflow
 trust_validation_tap = validation.index('brew trust --tap "$validation_path"')
 install_validation_tap = validation.index('brew tap "$validation_tap" "$validation_path"')
 assert trust_validation_tap < install_validation_tap, 'Validation tap must be trusted before Homebrew verifies it'

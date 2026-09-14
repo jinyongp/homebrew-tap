@@ -34,6 +34,8 @@ jobs:
           bash -n .github/workflows/scripts/validate-formula.sh
       - name: Publishing base regression
         run: python3 test/publishing-base.py
+      - name: GitHub Release formula generation
+        run: python3 test/formula-generator.py
       - name: Reject invalid source inputs
         run: |
           export GITHUB_OUTPUT="$RUNNER_TEMP/reject-source-repo"

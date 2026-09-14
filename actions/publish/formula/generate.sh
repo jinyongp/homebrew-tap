@@ -98,31 +98,24 @@ if [ -z "$version" ]; then
   exit 1
 fi
 
-archive_url="https://github.com/${REPOSITORY}/archive/${resolved_ref}.tar.gz"
 formula_dir="${TAP_PATH%/}/Formula"
 formula_path="${formula_dir}/${FORMULA}.rb"
 
 mkdir -p "$formula_dir"
 
-archive="$(mktemp)"
-trap 'rm -f "$archive"' EXIT
-curl -fsSL "$archive_url" -o "$archive"
-
-if command -v sha256sum >/dev/null 2>&1; then
-  checksum="$(sha256sum "$archive" | awk '{print $1}')"
-else
-  checksum="$(shasum -a 256 "$archive" | awk '{print $1}')"
-fi
-
 FORMULA_PATH="$formula_path" \
 FORMULA="$FORMULA" \
 REPOSITORY="$REPOSITORY" \
 VERSION="$version" \
-ARCHIVE_URL="$archive_url" \
-SHA256="$checksum" \
+RESOLVED_REF="$resolved_ref" \
 SOURCE_PATH="$SOURCE_PATH" \
 SPEC="$spec" \
+GITHUB_OUTPUT="$GITHUB_OUTPUT" \
 ruby <<'RUBY'
+require "digest"
+require "json"
+require "open3"
+require "tempfile"
 require "yaml"
 
 def fail_with(message)
@@ -149,6 +142,91 @@ def optional_string(spec, key)
   return nil if value.nil?
   fail_with("#{key} must be a string") unless value.is_a?(String)
   value
+end
+
+def download_sha256(url)
+  Tempfile.create("homebrew-formula-download") do |file|
+    file.close
+    _, stderr, status = Open3.capture3("curl", "-fsSL", url, "-o", file.path)
+    fail_with("failed to download #{url}: #{stderr.strip}") unless status.success?
+    Digest::SHA256.file(file.path).hexdigest
+  end
+end
+
+def expand_release_template(value, path, version)
+  fail_with("#{path} must be a string") unless value.is_a?(String) && !value.empty?
+  expanded = value.gsub("{version}", version)
+  fail_with("#{path} contains an unsupported template placeholder") if expanded.include?("{") || expanded.include?("}")
+  expanded
+end
+
+def safe_release_segment(value, path)
+  unless value.match?(/\A[A-Za-z0-9][A-Za-z0-9._+@-]*\z/)
+    fail_with("#{path} may contain only letters, numbers, dot, underscore, plus, at sign, and dash")
+  end
+  value
+end
+
+def resolve_distribution(spec, repository, version, resolved_ref)
+  distribution = spec["distribution"]
+  if distribution.nil?
+    url = "https://github.com/#{repository}/archive/#{resolved_ref}.tar.gz"
+    return {
+      "type" => "source",
+      "sources" => { "source" => { "url" => url, "sha256" => download_sha256(url) } },
+    }
+  end
+
+  fail_with("distribution must be a mapping") unless distribution.is_a?(Hash)
+  type = required_string(distribution, "type")
+
+  case type
+  when "source"
+    unknown = distribution.keys - %w[type]
+    fail_with("unsupported distribution keys for source: #{unknown.join(", ")}") unless unknown.empty?
+    url = "https://github.com/#{repository}/archive/#{resolved_ref}.tar.gz"
+    {
+      "type" => "source",
+      "sources" => { "source" => { "url" => url, "sha256" => download_sha256(url) } },
+    }
+  when "github-release"
+    unknown = distribution.keys - %w[type tag assets]
+    fail_with("unsupported distribution keys for github-release: #{unknown.join(", ")}") unless unknown.empty?
+    tag = safe_release_segment(
+      expand_release_template(required_string(distribution, "tag"), "distribution.tag", version),
+      "distribution.tag",
+    )
+    assets = distribution["assets"]
+    fail_with("distribution.assets must be a mapping") unless assets.is_a?(Hash)
+    platforms_by_system = {
+      "macos" => %w[macos-arm64 macos-x86_64],
+      "linux" => %w[linux-arm64 linux-x86_64],
+    }
+    platforms = platforms_by_system.values.flatten
+    unknown_platforms = assets.keys - platforms
+    fail_with("distribution.assets has unsupported platforms: #{unknown_platforms.join(", ")}") unless unknown_platforms.empty?
+    systems = platforms_by_system.filter_map do |system, system_platforms|
+      system if (system_platforms & assets.keys).any?
+    end
+    fail_with("distribution.assets must declare at least one supported operating system") if systems.empty?
+    systems.each do |system|
+      missing = platforms_by_system.fetch(system) - assets.keys
+      fail_with("distribution.assets is missing #{system} platforms: #{missing.join(", ")}") unless missing.empty?
+    end
+
+    selected_platforms = systems.flat_map { |system| platforms_by_system.fetch(system) }
+    sources = selected_platforms.to_h do |platform|
+      asset = safe_release_segment(
+        expand_release_template(assets.fetch(platform), "distribution.assets.#{platform}", version),
+        "distribution.assets.#{platform}",
+      )
+      url = "https://github.com/#{repository}/releases/download/#{tag}/#{asset}"
+      [platform, { "url" => url, "sha256" => download_sha256(url) }]
+    end
+    { "type" => type, "tag" => tag, "systems" => systems, "sources" => sources }
+  else
+    fail_with("distribution.type must be source or github-release")
+  end
 end
 
 def indent_snippet(value, spaces)
@@ -356,7 +434,7 @@ end
 def ensure_known_keys(spec)
   allowed = %w[
     caveats conflicts_with dependencies deprecate disable desc homepage install keg_only
-    license link_overwrite livecheck options post_install service test
+    license link_overwrite livecheck options post_install service test distribution
     uses_from_macos
   ]
   unknown = spec.keys - allowed
@@ -386,6 +464,12 @@ homepage = optional_string(spec, "homepage") || "https://github.com/#{ENV.fetch(
 license = spec.fetch("license") { fail_with("license is required") }
 install = normalize_bin_paths(required_string(spec, "install"))
 test = normalize_bin_paths(required_string(spec, "test"))
+distribution = resolve_distribution(
+  spec,
+  ENV.fetch("REPOSITORY"),
+  ENV.fetch("VERSION"),
+  ENV.fetch("RESOLVED_REF"),
+)
 dependencies = dependency_lines(spec["dependencies"])
 options = option_lines(spec["options"])
 conflicts_with = conflicts_with_lines(spec["conflicts_with"])
@@ -399,13 +483,43 @@ lifecycle = [
 content = +"class #{class_name} < Formula\n"
 content << "  desc #{desc.dump}\n"
 content << "  homepage #{homepage.dump}\n"
-content << "  url #{ENV.fetch("ARCHIVE_URL").dump}\n"
-content << "  version #{ENV.fetch("VERSION").dump}\n"
-content << "  sha256 #{ENV.fetch("SHA256").dump}\n"
+if distribution["type"] == "source"
+  source = distribution.fetch("sources").fetch("source")
+  content << "  url #{source.fetch("url").dump}\n"
+  content << "  version #{ENV.fetch("VERSION").dump}\n"
+  content << "  sha256 #{source.fetch("sha256").dump}\n"
+else
+  sources = distribution.fetch("sources")
+  content << "  version #{ENV.fetch("VERSION").dump}\n"
+end
 content << "  license #{render_license(license)}\n"
 content << "\n"
 
+if distribution["type"] == "github-release"
+  {
+    "macos" => ["macos-arm64", "macos-x86_64"],
+    "linux" => ["linux-arm64", "linux-x86_64"],
+  }.each do |os, (arm_platform, intel_platform)|
+    next unless distribution.fetch("systems").include?(os)
+
+    arm = sources.fetch(arm_platform)
+    intel = sources.fetch(intel_platform)
+    content << "  on_#{os} do\n"
+    content << "    if Hardware::CPU.arm?\n"
+    content << "      url #{arm.fetch("url").dump}\n"
+    content << "      sha256 #{arm.fetch("sha256").dump}\n"
+    content << "    else\n"
+    content << "      url #{intel.fetch("url").dump}\n"
+    content << "      sha256 #{intel.fetch("sha256").dump}\n"
+    content << "    end\n"
+    content << "  end\n\n"
+  end
+end
+
 class_stanzas = []
+if distribution["type"] == "github-release" && distribution.fetch("systems").length == 1
+  class_stanzas << "  depends_on :#{distribution.fetch("systems").first}"
+end
 class_stanzas << keg_only_line(spec["keg_only"])
 class_stanzas.concat(options)
 class_stanzas.concat(lifecycle)
@@ -453,17 +567,23 @@ content << "  end\n"
 content << "end\n"
 
 File.write(ENV.fetch("FORMULA_PATH"), content)
+
+source = distribution.fetch("sources")["source"]
+validation_systems = distribution["type"] == "source" ? ["macos"] : distribution.fetch("systems")
+runner_matrix = validation_systems.map { |system| system == "macos" ? "macos-latest" : "ubuntu-latest" }
+File.open(ENV.fetch("GITHUB_OUTPUT"), "a") do |output|
+  output.puts "formula-path=Formula/#{ENV.fetch("FORMULA")}.rb"
+  output.puts "archive-url=#{source&.fetch("url", "") || ""}"
+  output.puts "sha256=#{source&.fetch("sha256", "") || ""}"
+  output.puts "resolved-ref=#{ENV.fetch("RESOLVED_REF")}"
+  output.puts "version=#{ENV.fetch("VERSION")}"
+  output.puts "distribution=#{distribution.fetch("type")}"
+  output.puts "release-tag=#{distribution.fetch("tag", "")}"
+  output.puts "runner-matrix=#{JSON.generate(runner_matrix)}"
+end
 RUBY
 
 ruby -c "$formula_path" >/dev/null
 
 relative_path="Formula/${FORMULA}.rb"
-{
-  echo "formula-path=${relative_path}"
-  echo "archive-url=${archive_url}"
-  echo "sha256=${checksum}"
-  echo "resolved-ref=${resolved_ref}"
-  echo "version=${version}"
-} >> "$GITHUB_OUTPUT"
-
 echo "updated ${relative_path} for ${REPOSITORY}@${resolved_ref}"

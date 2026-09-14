@@ -151,9 +151,10 @@ test: |
   system "#{bin}/example", "--version"
 ```
 
-The tap owns Formula structure, source URL, version, SHA-256, class name,
-escaping, and field order. The source repository owns only metadata,
-dependencies, install/test behavior, and optional Homebrew stanzas.
+The tap owns Formula structure, source or release-asset URLs, version, SHA-256,
+platform selection, class name, escaping, and field order. The source repository
+owns only metadata, release asset names, dependencies, install/test behavior,
+and optional Homebrew stanzas.
 The tap does not infer package-specific toolchain or build settings from those
 values.
 
@@ -164,6 +165,7 @@ Supported spec fields:
 | `desc` | Yes | Formula description |
 | `homepage` | No | Defaults to `https://github.com/<repository>` |
 | `license` | Yes | SPDX string, `cannot_represent`, or `any_of`/`all_of` mapping |
+| `distribution` | No | Source archive by default, or a GitHub Release asset mapping |
 | `options` | No | Option declarations |
 | `dependencies.runtime` | No | Runtime dependency names |
 | `dependencies.build` | No | Build dependency names |
@@ -182,6 +184,58 @@ Supported spec fields:
 | `service` | No | Ruby snippet inserted inside `service do` |
 | `livecheck` | No | Ruby snippet inserted inside `livecheck do` |
 | `test` | Yes | Ruby snippet inserted inside `test do` |
+
+#### GitHub Release binaries
+
+Use `distribution.type: github-release` when the publishing repository uploads
+prebuilt binaries. The release tag and every asset name may contain the
+`{version}` placeholder. The workflow normalizes the Formula version first,
+downloads every declared asset from the publishing repository, calculates its
+SHA-256 checksum, and renders the selected operating-system branches.
+
+```yaml
+desc: Example tool
+homepage: https://github.com/<owner>/<repo>
+license: MIT
+distribution:
+  type: github-release
+  tag: "v{version}"
+  assets:
+    macos-arm64: example_{version}_darwin_arm64.tar.gz
+    macos-x86_64: example_{version}_darwin_amd64.tar.gz
+    linux-arm64: example_{version}_linux_arm64.tar.gz
+    linux-x86_64: example_{version}_linux_amd64.tar.gz
+install: |
+  bin.install "example"
+  generate_completions_from_executable(bin/"example", "completion")
+test: |
+  assert_match version.to_s, shell_output("#{bin}/example --version")
+```
+
+The expanded release tag and asset names are simple, URL-safe path segments.
+Declare at least one operating system. Each selected operating system requires
+both its `arm64` and `x86_64` assets; the other operating system may be omitted.
+A single-OS Formula receives `depends_on :macos` or `depends_on :linux`
+automatically. Upload the assets to the GitHub Release before calling the
+publishing workflow. Source distributions are validated on macOS as before;
+GitHub Release distributions are validated on each declared operating system
+before the Formula is committed.
+
+Call the reusable workflow after the release job uploads those assets. Pass the
+tag name as `version`; `ref` can remain the immutable source commit:
+
+```yaml
+jobs:
+  homebrew:
+    needs: release
+    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@<homebrew-tap-sha>
+    with:
+      formula: example
+      ref: ${{ github.sha }}
+      version: ${{ github.ref_name }}
+    secrets:
+      deploy_key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+```
 
 Dependency example:
 
@@ -231,6 +285,8 @@ When `repository` is different from the caller repository, `ref` is required.
 Tag-style versions are normalized for Homebrew: `refs/tags/v1.2.3`,
 `tags/v1.2.3`, `ref: v1.2.3`, and `version: v1.2.3` render as
 `version "1.2.3"`.
+GitHub Release distributions should pass the release tag as `version` when
+`ref` is an immutable commit SHA.
 
 ### Dry Run Check
 
@@ -248,7 +304,8 @@ jobs:
 ```
 
 Dry runs do not require `token` or `deploy_key`, and they skip the formula commit
-and push steps.
+and push steps. A GitHub Release dry run requires the declared release and all
+declared assets to exist already, so run it after uploading the release assets.
 
 ### Workflow Updates
 
