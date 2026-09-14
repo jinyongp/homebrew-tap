@@ -2,3 +2,6 @@ paths:
   .github/workflows/publish-formula.yml:
     ignore:
       - 'property "workflow_(repository|sha)" is not defined in object type'
+  .github/workflows/auto-merge-homebrew-tap.yml:
+    ignore:
+      - 'property "workflow_(repository|sha)" is not defined in object type'

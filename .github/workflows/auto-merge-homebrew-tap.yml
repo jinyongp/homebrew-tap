@@ -1,0 +1,84 @@
+name: auto-merge homebrew-tap updates
+
+on:
+  workflow_call:
+
+jobs:
+  auto-merge:
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Fetch Dependabot metadata
+        id: dependabot
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3
+        with:
+          github-token: ${{ github.token }}
+      - name: Check out authorization policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: tap-automation
+          persist-credentials: false
+      - name: Collect pull request evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_CHANGED_FILE_COUNT: ${{ github.event.pull_request.changed_files }}
+          PR_COMMIT_COUNT: ${{ github.event.pull_request.commits }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          UPDATED_DEPENDENCIES: ${{ steps.dependabot.outputs.updated-dependencies-json }}
+        run: |
+          if [ "$PR_COMMIT_COUNT" -gt 100 ] || [ "$PR_CHANGED_FILE_COUNT" -gt 100 ]; then
+            echo "::error::Dependabot update is too large to verify."
+            exit 1
+          fi
+
+          evidence="$RUNNER_TEMP/homebrew-tap-update"
+          mkdir -p "$evidence/base-workflows" "$evidence/head-workflows"
+          printf '%s' "$UPDATED_DEPENDENCIES" > "$evidence/metadata.json"
+          gh api --method GET "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits" \
+            -f per_page=100 > "$evidence/commits.json"
+          gh api --method GET "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+            -f per_page=100 > "$evidence/files.json"
+          latest_homebrew_tap_sha="$(
+            gh api --method GET repos/jinyongp/homebrew-tap/commits/main --jq .sha
+          )"
+          for side in base head; do
+            if [ "$side" = "base" ]; then
+              revision="$PR_BASE_SHA"
+            else
+              revision="$PR_HEAD_SHA"
+            fi
+            gh api --method GET "repos/$GITHUB_REPOSITORY/contents/.github/workflows" \
+              -f ref="$revision" \
+              --jq '.[] | select(.type == "file" and (.name | endswith(".yml") or endswith(".yaml"))) | .path' \
+              > "$evidence/$side-workflow-paths"
+            while IFS= read -r path; do
+              gh api --method GET "repos/$GITHUB_REPOSITORY/contents/$path" \
+                -f ref="$revision" --jq .content \
+                | tr -d '\n' | base64 --decode > "$evidence/$side-workflows/${path##*/}"
+            done < "$evidence/$side-workflow-paths"
+          done
+
+          python3 tap-automation/.github/workflows/scripts/authorize-homebrew-tap-update.py \
+            --metadata "$evidence/metadata.json" \
+            --commits "$evidence/commits.json" \
+            --files "$evidence/files.json" \
+            --expected-commit-count "$PR_COMMIT_COUNT" \
+            --expected-file-count "$PR_CHANGED_FILE_COUNT" \
+            --latest-homebrew-tap-sha "$latest_homebrew_tap_sha" \
+            --base-workflows "$evidence/base-workflows" \
+            --head-workflows "$evidence/head-workflows"
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"

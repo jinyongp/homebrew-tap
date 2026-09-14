@@ -97,7 +97,7 @@ Workflow usage:
 ```yaml
 jobs:
   homebrew:
-    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@main
+    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@<homebrew-tap-sha>
     with:
       formula: <formula>
       ref: ${{ github.sha }}
@@ -128,7 +128,7 @@ Workflow usage:
 ```yaml
 jobs:
   homebrew:
-    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@main
+    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@<homebrew-tap-sha>
     with:
       formula: <formula>
       ref: ${{ github.sha }}
@@ -241,7 +241,7 @@ publishing:
 ```yaml
 jobs:
   homebrew:
-    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@main
+    uses: jinyongp/homebrew-tap/.github/workflows/publish-formula.yml@<homebrew-tap-sha>
     with:
       formula: <formula>
       dry-run: true
@@ -249,6 +249,65 @@ jobs:
 
 Dry runs do not require `token` or `deploy_key`, and they skip the formula commit
 and push steps.
+
+### Workflow Updates
+
+Publishing repositories should pin this tap's reusable workflows to the same
+full commit SHA. Dependabot then proposes updates to the latest commit on
+`homebrew-tap` `main`, while releases continue to use an immutable revision.
+
+Add this dedicated group to `.github/dependabot.yml` in the publishing
+repository. Keep other GitHub Actions in a separate group so unrelated updates
+cannot enter the automatically merged pull request.
+
+```yaml
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      homebrew-tap:
+        patterns:
+          - jinyongp/homebrew-tap/.github/workflows/publish-formula.yml
+          - jinyongp/homebrew-tap/.github/workflows/auto-merge-homebrew-tap.yml
+      github-actions:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - jinyongp/homebrew-tap/.github/workflows/publish-formula.yml
+          - jinyongp/homebrew-tap/.github/workflows/auto-merge-homebrew-tap.yml
+```
+
+Add `.github/workflows/auto-merge-homebrew-tap.yml` to the publishing
+repository, using the same SHA as the publishing workflow:
+
+```yaml
+name: auto-merge homebrew-tap updates
+
+on:
+  pull_request_target:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    uses: jinyongp/homebrew-tap/.github/workflows/auto-merge-homebrew-tap.yml@<homebrew-tap-sha>
+```
+
+Enable **Allow auto-merge** and **Allow squash merging** in the publishing
+repository, then make the `auto-merge` authorization job a required status
+check for its target branch. The required check ensures that a new commit
+cannot inherit an earlier authorization. Add the repository's regular CI
+checks to the same branch rule when the update must wait for them too.
+
+The reusable workflow accepts only verified Dependabot pull requests whose
+complete dependency list contains only one or both `homebrew-tap` workflows
+above. It does not check out or run pull-request code. Other dependency updates
+and PRs with maintainer changes remain manual.
 
 The lower-level composite action is also available for custom workflows:
 
