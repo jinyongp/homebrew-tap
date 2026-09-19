@@ -225,3 +225,79 @@ implicitly covered.
 - Phase 2 must add deterministic coverage for first-push non-fast-forward retry and
   full no-change publish idempotency, and must use a non-production tap fixture for real
   write acceptance.
+
+## P0-04 — Consumer Homebrew contracts
+
+### Contract matrix
+
+| Consumer | Formula / distribution | PR validation | Release-time Homebrew path | Credential / updater | Migration-specific prerequisite |
+| --- | --- | --- | --- | --- | --- |
+| `devtools` | `formula: devtools`; no `distribution` key, therefore source distribution; Go build from source in Formula | no dedicated Homebrew PR check found | tag-triggered `release.yml`; Homebrew job has `needs: release`, skips prereleases, passes `ref: github.sha` and `version: github.ref_name`; current automation `5e298c2...` without version comment | `HOMEBREW_TAP_DEPLOY_KEY`; Dependabot group for both Homebrew workflows; `pull_request_target` auto-merge wrapper at same old SHA | source distribution does not require GitHub Release assets, so the current `needs: release` edge is orchestration coupling rather than data necessity; migration also needs a new read-only PR check and version-commented new pins |
+| `openapi-sdkgen` | `formula: openapi-sdkgen`; no `distribution` key, therefore source distribution; Go build from source in Formula | dedicated `pull_request` workflow; `dry-run: true`, `validation-mode: spec`, `contents: read` | `publish-homebrew` depends only on `validate-release`; passes current repository explicitly, immutable validated commit and tag; GitHub Release and npm publish are separate sibling jobs after the same validation; automation `5d469435... # automation-v1.5.0` | `HOMEBREW_TAP_DEPLOY_KEY`; Dependabot group/exclusion for both workflows; `pull_request_target` auto-merge wrapper with contents/pull-requests/statuses write | remove redundant arbitrary `repository` input under the new caller-is-source contract; preserve existing independent PR check and release-validation outputs; replace update policy |
+| `gate` | `formula: gate`; `distribution.type: github-release`; tag template `v{version}`; assets for macOS arm64/x86_64 and Linux arm64/x86_64 | current `.github/workflows/ci.yml` calls `publish-formula.yml@5d469435...` with `dry-run: true` and `validation-mode: spec` | current release workflow calls the same automation SHA with `ref: needs.release_tag.outputs.target`, `version: needs.release_tag.outputs.tag`, and deploy key after its release/build prerequisites | `HOMEBREW_TAP_DEPLOY_KEY`; no current `auto-merge-homebrew-tap.yml` reference found; workflow generator/tests also embed the Homebrew pin | unlike the source consumers, Homebrew publish must remain ordered after the immutable GitHub Release assets it consumes are available; migrate generated workflow source/tests/docs together with executable workflows |
+
+### Current successful paths
+
+#### `devtools`
+
+```text
+SemVer tag push
+  -> validate tag/main ancestry
+  -> macOS + Linux CI
+  -> build/package product release artifacts
+  -> GitHub Release job
+  -> Homebrew reusable workflow (stable versions only)
+  -> source Formula generation/validation
+  -> homebrew-tap Formula/devtools.rb update
+```
+
+The current ordering makes GitHub Release completion a prerequisite even though the
+Formula itself uses the source archive/build path.
+
+#### `openapi-sdkgen`
+
+```text
+tag push or explicit resume
+  -> validate annotated SemVer tag and resolve immutable commit
+  -> parallel downstream channels:
+       - npm publish
+       - Homebrew source Formula publish
+       - GitHub Release publish
+```
+
+Homebrew and GitHub Release are already separate distribution channels here.
+
+#### `gate`
+
+```text
+release tag/build pipeline
+  -> publish immutable GitHub Release assets required by Formula distribution
+  -> Homebrew workflow with immutable release target + version
+  -> resolve four release assets/checksums
+  -> native Homebrew validation
+  -> homebrew-tap Formula/gate.rb update
+```
+
+Gate's generated CI/release workflow source is itself part of the migration surface,
+so changing only `.github/workflows/*.yml` would drift the repository's generated
+workflow contract.
+
+### Consumer differences that matter to migration
+
+- `devtools` lacks the dedicated read-only Homebrew PR check that the target
+  `homebrew-actions/check.yml` contract expects consumers to adopt.
+- `openapi-sdkgen` is the closest current model to the target separation: Homebrew
+  and GitHub Release are sibling channels after one immutable release validation step.
+- `gate` is the only confirmed consumer whose Formula is backed by GitHub Release
+  assets, so it is the canary for preserving release-asset provenance/digest/native
+  matrix behavior.
+- `devtools` uses an older automation SHA and no adjacent automation version comment;
+  `openapi-sdkgen` and `gate` are on `automation-v1.5.0`-commented pins.
+- Only `devtools` and `openapi-sdkgen` currently have explicit Dependabot grouping
+  for the Homebrew workflow dependencies in the evidence collected by P0-01.
+
+### P0-04 conclusions
+
+Every live consumer now has a migration record with Formula type, PR/release usage,
+immutable ref/version inputs, tap credential mode, dependency-update behavior, and
+consumer-specific migration constraints.
