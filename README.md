@@ -37,8 +37,8 @@ CI validates:
 - Ruby syntax for every checked-in Formula;
 - `brew audit --strict` for every checked-in Formula.
 
-Reusable Formula generation, publishing, consumer checks, and dependency-update policy
-are maintained separately from this tap repository.
+Formula generation, Homebrew validation, and publishing automation are owned by
+`jinyongp/homebrew-actions`; this repository remains the destination tap state.
 
 ## Delete a Formula
 
