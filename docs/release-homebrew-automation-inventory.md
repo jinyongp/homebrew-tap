@@ -655,3 +655,83 @@ The final regression is structural rather than updater-specific:
 - Version-family comments mitigate the current updater behavior but are not the
   architectural fix; moving reusable workflows to a single-product automation
   repository removes the mixed tag namespace from dependency resolution.
+
+
+## P0-08 — Operational failure, retry, and rollback behavior
+
+### Recovery matrix
+
+| Operation / failure | Current behavior | Classification | Recovery / rollback contract to preserve |
+| --- | --- | --- | --- |
+| Formula generation or spec validation fails | generating job exits non-zero; stable `homebrew-check` fails unless both generate and validate succeeded; publish cannot proceed | safe failure; retryable after source/spec fix | no tap mutation occurs before successful generation/validation |
+| Native Homebrew audit/install/test fails | validation matrix job fails and stable `homebrew-check` fails | safe failure; retryable | Formula must never be committed when any required validation target fails |
+| Formula output is unchanged | `commit-formula.sh` emits `changed=false` and exits without commit; publish workflow skips push | idempotent no-op | same product revision/version may be retried without creating an empty commit |
+| Tap push races another update | `push-formula.sh` attempts push, then fetches and rebases `origin/<branch>` before retry; default bound is three attempts | retryable optimistic concurrency | preserve unrelated remote Formula commits; fail after bounded retries instead of force-pushing or overwriting |
+| Rebase conflicts during tap push | shell exits due `set -e`; workflow fails | safe failure requiring intervention/retry | no force push; regenerated/retried publish must start from current tap state |
+| Tap credential is missing/ambiguous | publish job rejects no credential and rejects both token + deploy key | safe configuration failure | caller fixes secret configuration; no repository mutation |
+| Existing automation release tag/release matches exact SHA and is immutable | `publish-automation-release.yml` exits successfully without recreating release | idempotent no-op | new automation products must preserve exact-revision no-op behavior |
+| Existing automation release name points elsewhere or is not immutable | automation release workflow fails | safe failure | do not retarget or replace published version identity |
+| Product release already exists and matches | behavior differs by product: Gate verifies exact immutable state/assets then no-ops; openapi-sdkgen has resume/reuse path; devtools lacks explicit no-op | partially idempotent today | `release-actions` must standardize matching-published-release no-op and mismatch rejection |
+| Existing product release differs | Gate rejects mismatched immutable assets/state; openapi verifies required existing asset checksums; devtools command failure is the current guard | destructive replacement is prohibited | shared action must refuse replacement of a published immutable release |
+| Dependency-update authorization fails | authorize step outcome becomes failure; reconcile disables existing auto-merge and records manual-review description | safe fail-closed behavior | target `workflow_run` policy must remain fail-closed and remove stale auto-merge |
+| Authorized auto-merge command fails | reconcile attempts to disable auto-merge, then exits non-zero | safe failure | do not leave an unverified automatic merge armed after reconciliation failure |
+| Policy initialization/reporting fails | final status reports policy failure when possible | observable failure | target policy must produce a stable required-check result or equivalent merge gate |
+| Formula delete input is invalid/missing | deletion script exits before Git mutation | safe failure | preserve strict name validation and existing-Formula requirement |
+| Formula deletion dry-run | reports target and `changed=true` but does not remove/commit | non-destructive preview | preserve operator preview path |
+| Formula deletion succeeds locally but push races | deletion currently reuses bounded `push-formula.sh` behavior | retryable with shared implementation today | after extraction, tap-local deletion needs equivalent non-force convergence behavior |
+| Consumer automation migration is bad | consumer references are full SHAs; old automation releases remain available | reversible per consumer | revert the consumer workflow pin to the last known-good SHA; do not rewrite product tags/releases |
+| New automation extraction fails before consumer cutover | current `homebrew-tap` workflows/releases stay intact through Phases 1–4 | additive/reversible migration | do not remove old tap-hosted automation until all consumers pass acceptance |
+| Historical product GitHub Release exists | Phase 0/architecture does not rewrite product tags or releases | immutable historical state | migration must adapt automation around existing release history, not rewrite it |
+
+### Concurrency and idempotency guarantees
+
+The migration must preserve these concrete guarantees:
+
+1. **validation before mutation** — Formula rendering/audit/install/test completes before
+   tap commit/push;
+2. **no-force tap convergence** — concurrent source repositories cannot solve races by
+   overwriting tap history;
+3. **bounded retries** — network/non-fast-forward retries terminate with an explicit
+   failure instead of looping indefinitely;
+4. **same-input no-op** — an unchanged Formula produces no commit/push;
+5. **immutable release identity** — an existing published release is reused only when it
+   represents the requested tag/commit/assets; mismatch fails rather than mutating it;
+6. **fail-closed dependency updates** — failed authorization or reconciliation never
+   leaves a newly authorized automatic merge;
+7. **per-consumer rollback** — a consumer can return to its prior full automation SHA
+   while old contracts are retained during migration.
+
+### Known operational gaps to close later
+
+- Existing tests do not deterministically force the first `git push` to fail and then
+  prove the retry/rebase branch succeeds. Phase 2 needs this regression.
+- Existing tests do not exercise a complete no-change remote publish rerun. Phase 2
+  needs a non-production tap fixture acceptance case.
+- `devtools` release publication does not currently provide an intentional matching
+  existing-release no-op; Phase 1 should improve this via `release-actions`.
+- The current consumer auto-merge policy is fail-closed but attached to
+  `pull_request_target`; Phase 2 must preserve the behavior while moving privilege to
+  the trusted `workflow_run` path.
+
+### Destructive actions blocked until later phases
+
+Phase 0 confirms the following remain blocked until replacement contracts are accepted:
+
+- deleting or rewriting existing `automation-v*` releases/tags;
+- deleting the fixture release/tag solely to hide the updater symptom;
+- removing tap-hosted reusable workflows/actions/scripts;
+- rotating/removing consumer tap credentials;
+- changing repository rulesets or merge settings;
+- force-pushing tap history;
+- rewriting published product tags or GitHub Releases.
+
+### P0-08 conclusions
+
+- Every migration-critical failure mode has a current recovery path or an explicit
+  coverage gap.
+- Tap writes are recoverable through retry/rebase and consumer pin rollback without
+  rewriting product release history.
+- Immutable release mismatch and dependency-policy failure are intentionally
+  fail-closed and must remain so.
+- The migration can remain additive through consumer cutover; irreversible cleanup is
+  not required to prove the new architecture.
