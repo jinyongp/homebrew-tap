@@ -31,4 +31,4 @@ jobs:
           DRY_RUN: ${{ inputs.dry-run }}
       - name: push formula deletion
         if: ${{ !inputs.dry-run && steps.delete_formula.outputs.changed == 'true' }}
-        run: bash .github/workflows/scripts/push-formula.sh
+        run: bash .github/workflows/scripts/push-tap-maintenance.sh
