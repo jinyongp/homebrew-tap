@@ -301,3 +301,84 @@ workflow contract.
 Every live consumer now has a migration record with Formula type, PR/release usage,
 immutable ref/version inputs, tap credential mode, dependency-update behavior, and
 consumer-specific migration constraints.
+
+
+## P0-05 — GitHub Release lifecycle implementations
+
+### Current implementation comparison
+
+| Concern | `devtools` | `openapi-sdkgen` | `gate` | Extraction classification |
+| --- | --- | --- | --- | --- |
+| Release trigger / orchestration | tag push `v*`; release waits for macOS/Linux CI | tag push or `workflow_dispatch` resume; one validation job fans out to npm/Homebrew/GitHub Release | `repository_dispatch: release`; release tag identity supplied as tag, target SHA, and tag-object SHA | product orchestration; keep local |
+| Version/tag validation | SemVer including prerelease; target must be ancestor of `main` | strict SemVer/prerelease validation; tag must be annotated and target merged into `main` | strict stable `vX.Y.Z`; verifies local/remote tag object and target identity, highest stable tag, event/dispatch identity, and `main` ancestry | common provenance primitives are shareable; exact version/prerelease/highest-tag policy remains caller/product policy |
+| Artifact build | product-specific `just release` matrix plus skill/install/LICENSE/version files | GoReleaser plus npm packaging in separate channel | `gate-dev ci build-release-artifacts` creates four native binaries | product build/package logic; remain local |
+| Release creation | `gh release create "$TAG" dist/* --verify-tag --generate-notes`; prerelease flag when needed | GoReleaser creates release when validated existing complete release is not reusable | `gate-dev ci publish-release` runs `gh release create` with caller-built assets, explicit notes, `--verify-tag` | generic create/upload/publish primitive is a `release-actions` candidate |
+| Existing-release handling | no explicit resume/no-op path; duplicate creation relies on command failure | queries existing release; recognizes a complete required asset set; otherwise follows creation path | if release exists, requires published/non-draft/non-prerelease/immutable state and then verifies exact asset set/content; matching release is a no-op | inspect/verify/idempotent no-op is shared `release-actions` responsibility; product-specific required asset list is caller input |
+| Asset integrity | packaging-specific local checks before release | verifies required asset list and compares `checksums.txt` values with GitHub asset SHA-256 digests for a reusable existing release | downloads each existing release asset and byte-compares it with the caller-built local file; rejects missing or unexpected assets | shared exact-asset/digest/content verification primitive; artifact naming remains caller data |
+| Immutable release verification | no explicit post-create immutable check in workflow | current visible workflow validates existing release completeness/digests; immutable-state enforcement is not centralized in the workflow code inspected | existing release must be immutable; newly created release state is read back and must be published, stable, immutable | immutable postcondition belongs in `release-actions` |
+| Release notes | GitHub-generated notes | GoReleaser-managed | annotated tag body when available, otherwise commit bullets since latest published release | caller-supplied/generated-note strategy is product policy; shared action may accept notes or a generic generation mode but must not embed one product's changelog policy |
+| Rerun model | no explicit release-resume input; rerunning an already-created release is not intentionally idempotent | explicit `workflow_dispatch` resume exists and attempts to reuse a complete existing release | matching existing immutable release is intentionally verified/no-op | reusable idempotent lifecycle behavior is a `release-actions` target; workflow-level resume trigger stays local |
+| GitHub permissions | release job `contents: write` | GitHub Release job `contents: write` | build/publish job `contents: write`; initial detection/preflight remain read-only | caller declares permissions; action must not widen them |
+
+### Gate lifecycle evidence
+
+A read-only depth-1 clone of current `jinyongp/gate` was inspected under the
+workspace temporary directory after GitHub code-search rate limiting prevented further
+search API reads. The clone is investigation-only and is not a migration target.
+
+At the inspected Gate revision:
+
+- `internal/devtool/cirelease/publish.go` validates the strict release tag and exact
+  expected target/tag-object identity before release mutation.
+- If a release already exists, it must be published, non-prerelease, and immutable.
+  The implementation then requires the exact expected asset set and downloads every
+  asset to byte-compare against the newly built local artifact.
+- If the release does not exist, the implementation creates it with caller-built assets
+  and then reads the release state back to require the immutable published postcondition.
+- `internal/devtool/cirelease/git.go` rejects moved tag object/target identity and
+  older stable tags, and records whether the target is merged into `main`.
+- `.github/workflows/release.yml` keeps preflight/build orchestration and artifact
+  construction inside Gate, then calls the release primitive before the Homebrew job.
+  The Homebrew job depends on the build job, which includes release publication.
+
+### Initial `release-actions` extraction boundary
+
+The evidence supports a narrow shared product centered on GitHub Release lifecycle
+state, not product release orchestration.
+
+Shared candidates:
+
+1. validate caller-provided tag/commit provenance against the remote tag;
+2. inspect current GitHub Release state;
+3. create/upload/publish from caller-produced artifact paths when no valid release
+   exists;
+4. verify the final published/immutable postcondition;
+5. verify the expected asset set and asset integrity;
+6. treat an already-published matching immutable release as an idempotent no-op;
+7. reject mismatched published state rather than replacing tagged artifacts.
+
+Remain product-owned:
+
+- deciding when a release should run;
+- version bump and tag creation;
+- SemVer/prerelease/stable-only policy beyond generic input validation;
+- determining whether the tag must be annotated or be the newest stable tag;
+- build/test matrices and product packaging;
+- artifact names and required artifact list;
+- GoReleaser configuration, npm publication, skill packaging, installers, checksums file
+  format, and other package-channel logic;
+- release-note/changelog policy;
+- Homebrew ordering based on the product's selected Formula distribution.
+
+### P0-05 conclusions
+
+- There is enough real duplicated lifecycle behavior to justify a root
+  `release-actions` action, but the shared API must stay narrower than any one
+  product's release workflow.
+- Gate provides the strongest existing idempotency and immutable-artifact behavior and
+  should be treated as preservation evidence, not copied wholesale as the shared API.
+- `devtools` currently lacks intentional existing-release idempotency; migrating it to
+  the shared action will strengthen rerun behavior.
+- `openapi-sdkgen` already has a resume path and existing-release verification, but
+  product-specific GoReleaser/checksum behavior must remain outside the shared action.
+- No product build command is a `release-actions` responsibility.
