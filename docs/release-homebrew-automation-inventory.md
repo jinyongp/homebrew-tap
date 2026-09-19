@@ -382,3 +382,131 @@ Remain product-owned:
 - `openapi-sdkgen` already has a resume path and existing-release verification, but
   product-specific GoReleaser/checksum behavior must remain outside the shared action.
 - No product build command is a `release-actions` responsibility.
+
+
+## P0-06 — Permissions, credentials, and trust boundaries
+
+This inventory records credential names and authority only. No secret value was read,
+printed, or copied.
+
+### Current write-authority map
+
+| Operation | Current code / caller | Credential or token name | Declared permission / authority | Repository target | Target-state owner |
+| --- | --- | --- | --- | --- | --- |
+| Homebrew PR/spec check | consumer `pull_request` -> `publish-formula.yml` dry-run/spec | caller `GITHUB_TOKEN`; no tap secret | `contents: read` in observed PR-check consumers; called workflow also restricts contents to read | caller source + public automation/tap reads | `homebrew-actions/check.yml`; read-only |
+| Formula publish with deploy key | `publish-formula.yml` publish job | reusable secret `deploy_key`; live consumers pass `HOMEBREW_TAP_DEPLOY_KEY` | SSH deploy key has write access to `jinyongp/homebrew-tap`; caller token remains read-only for source/automation reads | `homebrew-tap` | `homebrew-actions/publish.yml` |
+| Formula publish with token alternative | `publish-formula.yml` public contract | reusable secret `token`; docs name `HOMEBREW_TAP_TOKEN` | token/PAT must provide tap contents write | `homebrew-tap` | `homebrew-actions/publish.yml`; supported alternative, not observed in current live consumers |
+| Tap Formula deletion | `delete-formula.yml` | repository `GITHUB_TOKEN` | job `contents: write` | `homebrew-tap` | `homebrew-tap` |
+| Automation release creation | `publish-automation-release.yml` | `github.token` as `GH_TOKEN` | workflow `contents: write` | `homebrew-tap` GitHub Releases | replaced by new automation product release process; no longer tap responsibility |
+| Dependency policy pending/final status | `auto-merge-homebrew-tap.yml` policy-start/report | caller `github.token` | `statuses: write` | consumer repository PR head SHA | `homebrew-actions/update-policy.yml` via trusted follow-up |
+| Dependency-update evidence read | `auto-merge-homebrew-tap.yml` authorize | caller `github.token` plus Dependabot metadata action | `contents: read`, `pull-requests: read` | consumer repository; public `homebrew-tap` release metadata | `homebrew-actions/update-policy.yml` |
+| Enable/disable consumer auto-merge | `auto-merge-homebrew-tap.yml` reconcile | caller `github.token` | `contents: write`, `pull-requests: write` | consumer repository PR | `homebrew-actions/update-policy.yml` via trusted `workflow_run` wrapper |
+| Product GitHub Release | product-specific release job | repository `GITHUB_TOKEN` / `github.token` | release jobs use `contents: write` | each product repository | product repository invoking `release-actions` |
+| Deploy-key provisioning | `scripts/setup-deploy-key.sh` operator command | user's authenticated `gh` session; generated private deploy key is passed directly to `gh secret set` | authenticated operator must administer source and tap; creates write deploy key in tap and Actions secret in source | tap deploy keys + source repo Actions secret | operator tooling moved to `homebrew-actions` |
+
+### Live consumer permission differences
+
+#### `devtools`
+
+- top-level release workflow permission is `contents: read`; only its GitHub Release job
+  elevates to `contents: write`.
+- Homebrew publish receives `HOMEBREW_TAP_DEPLOY_KEY`; no Homebrew-specific caller
+  token write permission is declared.
+- current `pull_request_target` auto-merge wrapper declares
+  `contents: write` and `pull-requests: write`; it is pinned to the older automation
+  revision and does not declare the later stable policy status permission.
+
+#### `openapi-sdkgen`
+
+- PR Homebrew check declares `contents: read`.
+- release validation and Homebrew publish declare `contents: read`; the tap write is
+  delegated solely through `HOMEBREW_TAP_DEPLOY_KEY`.
+- the independent GitHub Release job declares `contents: write` and uses its own
+  repository `GITHUB_TOKEN`.
+- current `pull_request_target` wrapper declares `contents: write`,
+  `pull-requests: write`, and `statuses: write`.
+
+#### `gate`
+
+- CI is a normal `pull_request` workflow with `contents: read`; its Homebrew spec
+  check has no tap write credential.
+- release workflow defaults to `contents: read`; only the product build/release job
+  uses `contents: write`.
+- Homebrew publish receives `HOMEBREW_TAP_DEPLOY_KEY` after the release-producing
+  build job succeeds.
+- no current Homebrew auto-merge wrapper was found in P0-01.
+
+### Reusable-workflow credential behavior
+
+The existing Homebrew reusable workflow has two distinct identities:
+
+1. **caller/source identity** — the reusable workflow executes in the consumer's event
+   context and receives the caller's `github.token` permissions;
+2. **tap write identity** — actual Formula pushes use the explicit `token` or
+   `deploy_key` secret selected by the publish job.
+
+The workflow also checks out its implementation from
+`job.workflow_repository@job.workflow_sha`. This avoids executing a newer
+`homebrew-tap/main` implementation than the caller's pinned reusable-workflow SHA.
+
+The target `homebrew-actions` contracts preserve this separation:
+
+- `check.yml`: caller source read + pinned automation read only; no tap secret;
+- `publish.yml`: caller source read plus exactly one explicit tap-write credential;
+- `update-policy.yml`: consumer-repository metadata/merge authority only; no tap
+  credential and no source-build execution.
+
+### Current untrusted-PR boundary
+
+The existing consumer wrappers use `pull_request_target`, which gives the workflow a
+trusted base-repository execution context and write-capable token according to caller
+permissions.
+
+The current reusable policy reduces risk in several ways:
+
+- it checks out only the pinned policy automation revision from
+  `job.workflow_repository@job.workflow_sha`;
+- it does not checkout the pull-request head;
+- it retrieves PR commits/files/workflow contents through the GitHub API and treats them
+  as evidence;
+- it authorizes only Dependabot-authored, verified, dependency-only workflow-ref
+  updates;
+- reconcile enables/disables auto-merge only after authorization.
+
+Even with those guards, the write-capable decision is attached directly to
+`pull_request_target`. The target design moves privilege separation to:
+
+```text
+pull_request
+  -> read-only Homebrew/dependency validation
+  -> workflow_run on trusted base workflow
+  -> pinned update-policy.yml
+  -> API-only revalidation of PR evidence
+  -> enable/disable auto-merge
+```
+
+The privileged `workflow_run` path must not checkout the PR head, run PR-provided
+scripts, restore PR-produced caches, or execute PR-produced artifacts.
+
+### Credential migration destinations
+
+| Current name / authority | Migration |
+| --- | --- |
+| `HOMEBREW_TAP_DEPLOY_KEY` | remains consumer-owned secret and is passed as `tap_deploy_key` to `homebrew-actions/publish.yml` |
+| `HOMEBREW_TAP_TOKEN` / reusable `token` alternative | remains optional tap-write alternative, renamed/exposed as the new publish contract's tap token input if retained |
+| consumer `GITHUB_TOKEN` for read-only check | remains caller token with explicit `contents: read` |
+| consumer `GITHUB_TOKEN` for auto-merge/status | moves from `pull_request_target` wrapper to trusted `workflow_run` wrapper with only the permissions needed by update policy |
+| product release `GITHUB_TOKEN` | remains product-owned; `release-actions` uses caller-declared `contents: write` rather than a Homebrew credential |
+| operator `gh` login used by deploy-key setup | remains an operator prerequisite; no credential value is stored in the automation repository |
+
+### P0-06 conclusions
+
+- Every current repository-write operation has an identified credential and target.
+- Homebrew source validation and tap mutation already use separable authorities; the
+  extraction should preserve that property rather than introduce a broad shared token.
+- All live consumers currently use the deploy-key path for tap writes.
+- The only privileged untrusted-PR boundary that must be structurally redesigned is the
+  consumer dependency-update auto-merge path.
+- No new privilege is required for the planned `workflow_run` split: it reuses the
+  consumer repository's pull-request/status write authority while keeping tap
+  credentials out of that path.
