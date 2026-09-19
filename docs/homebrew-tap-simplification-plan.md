@@ -13,9 +13,10 @@ workstream:
 - `jinyongp/homebrew-tap-fixture`
 - product/consumer repositories such as `devtools`, `openapi-sdkgen`, and `gate`
 
-Those repositories may be inspected read-only only when an external-consumer gate needs
-current evidence. No workflow, branch, release, tag, repository setting, or source file
-outside `homebrew-tap` is modified by this plan.
+Those repositories may be inspected read-only when compatibility or migration state
+needs current evidence. Their migration is owned by those repositories and is not a
+prerequisite for simplifying `homebrew-tap`. No workflow, branch, release, tag,
+repository setting, or source file outside `homebrew-tap` is modified by this plan.
 
 ## Goal
 
@@ -41,8 +42,10 @@ The final repository does not own:
 
 ## Safety rules
 
-1. Do not remove a public reusable workflow while a live external consumer still
-   references it.
+1. Do not rewrite or delete historical commits/tags used by SHA-pinned consumers.
+   Current `main` may remove the old reusable workflow surface once live executable
+   consumers are verified to use immutable full commit SHAs. Consumer-side migration is
+   handled separately in the consumer repository.
 2. Do not remove `push-formula.sh` until Formula deletion has an independent tap-local
    push implementation.
 3. Do not force-push tap history.
@@ -111,7 +114,7 @@ Required state:
 
 Passing G1 allows publisher-owned push code to be removed later.
 
-### G2 — External-consumer zero gate
+### G2 — Pinned-consumer compatibility gate
 
 This is a read-only gate. No external repository is modified.
 
@@ -123,10 +126,15 @@ Repeat GitHub/local searches for live references to:
 
 Classify every hit.
 
-G2 passes only when there are zero live executable consumers.
+G2 passes when every live executable consumer reference is pinned to an immutable full
+commit SHA and no live executable consumer uses a mutable branch or tag reference.
 
-If any live consumer remains, destructive removal stops here. Tap-local preparation may
-remain committed, but the public compatibility surface stays intact.
+Existing full-SHA consumers are not blockers: GitHub resolves their reusable workflow
+and supporting automation from the pinned historical commit. Their migration to the new
+automation ownership model is independent follow-up work in those repositories.
+
+If a mutable live executable reference remains, destructive removal stops here until
+that reference is pinned or migrated.
 
 ### G3 — Automation removal gate
 
@@ -246,7 +254,7 @@ Commit unit:
 test: isolate tap maintenance coverage
 ```
 
-### HT-04 — Run external-consumer zero gate
+### HT-04 — Verify external consumer pins
 
 Read-only actions:
 
@@ -258,12 +266,15 @@ No external mutation is allowed.
 
 Completion criteria:
 
-- zero live executable consumer references.
+- every live executable consumer uses an immutable full commit SHA;
+- no mutable branch/tag reference remains;
+- documentation, Dependabot configuration, historical, and temporary hits are
+  classified separately from executable consumers.
 
 If the gate fails:
 
-- stop destructive cleanup;
-- report the exact remaining repositories/paths;
+- stop destructive cleanup only for mutable executable consumers;
+- report the exact mutable repositories/paths;
 - do not remove public automation from `homebrew-tap`.
 
 Commit unit:
@@ -435,12 +446,13 @@ Run all applicable final checks:
    - verify worktree clean after each work-unit commit.
 
 7. external gate confirmation
-   - repeat read-only consumer search immediately before declaring removal final.
+   - repeat read-only consumer search immediately before declaring removal final;
+   - verify remaining executable references, if any, are immutable full commit SHAs.
 
 Completion criteria:
 
 - all checks pass;
-- no live external old automation consumer exists;
+- any remaining external old-automation consumer is immutable full-SHA pinned;
 - repository contains only tap-state/tap-maintenance responsibilities;
 - worktree is clean.
 
@@ -450,7 +462,7 @@ Expected implementation commit sequence:
 
 1. `refactor: isolate tap maintenance push`
 2. `test: isolate tap maintenance coverage`
-3. G2 external-consumer zero gate
+3. G2 pinned-consumer compatibility gate
 4. `refactor!: remove tap-hosted Homebrew automation`
 5. `chore: remove obsolete tap automation config` if kept separate
 6. `docs: narrow homebrew-tap to tap maintenance`
@@ -463,7 +475,7 @@ out of scope.
 
 Stop immediately without further destructive changes when:
 
-- G2 finds a live external consumer;
+- G2 finds a mutable live executable consumer reference;
 - tap-local deletion loses retry/no-force guarantees;
 - Formula validation regresses;
 - actionlint/workflow validation fails after cleanup;
@@ -482,6 +494,7 @@ Stop immediately without further destructive changes when:
 - no publisher deploy-key tooling remains;
 - active CI is tap-only;
 - README is tap-only;
-- no live external consumer references the removed public paths;
+- any remaining external reference to a removed public path is immutable full-SHA
+  pinned and migrates independently in its consumer repository;
 - historical automation/fixture releases are no longer produced;
 - final validation passes and the worktree is clean.
