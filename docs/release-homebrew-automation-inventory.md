@@ -83,3 +83,67 @@ The following search hits are not external consumers:
   though those files are not themselves GitHub Actions consumers.
 - No external direct consumer of the lower-level composite action was found.
 - All search hits from the Phase 0 reference scan are classified above.
+
+
+## P0-02 — Current `homebrew-tap` automation surface
+
+### Public and orchestration surface
+
+| Responsibility | Current path(s) | Current contract / side effects | Current evidence | Target owner |
+| --- | --- | --- | --- | --- |
+| Full Homebrew publish orchestration | `.github/workflows/publish-formula.yml` | `workflow_call`; inputs `formula`, optional `repository`, `ref`, `version`, `spec-path`, `dry-run`, `validation-mode`; optional `token` / `deploy_key`; checks out pinned automation and current tap, generates Formula, uploads/downloads workflow artifact, runs native validation matrix, commits and pushes tap | `test/publishing-base.py`; `.github/workflows/test.yml` jobs `github-release-e2e` and `publish-dry-run` | `homebrew-actions`; split into `check.yml` and `publish.yml` |
+| Low-level Formula action | `actions/publish/formula/action.yml`, `actions/publish/formula/generate.sh` | composite action; consumes checked-out source/tap paths, repository/ref/version/spec/mode; writes `Formula/<name>.rb`; resolves source archive or GitHub Release metadata/checksums; outputs formula path, resolved ref/version/distribution/release tag/runner matrix | `test/formula-generator.py`; `.github/workflows/test.yml`; `test/publishing-base.py` | `homebrew-actions` |
+| Source input resolution | `.github/workflows/scripts/resolve-source-inputs.sh` | defaults repository/ref to caller context, validates owner/name and requires ref for a different repository; emits repository/ref outputs | negative source-input test in `test.yml`; structural assertions in `publishing-base.py` | `homebrew-actions`; arbitrary source-repository behavior is narrowed by the target public API |
+| Formula validation | `.github/workflows/scripts/validate-formula.sh` | copies tap to an isolated temporary Git repo, trusts/taps it, runs `brew audit --strict`; release mode additionally installs from source and runs `brew test`; cleans temporary tap | `publishing-base.py`; reusable workflow matrix/E2E | `homebrew-actions` |
+| Validation aggregation | `.github/workflows/scripts/require-formula-validation.sh` | fails stable `homebrew-check` unless generate and validate jobs both succeeded | `publishing-base.py` | `homebrew-actions` |
+| Formula commit | `.github/workflows/scripts/commit-formula.sh` | detects Formula path change, commits with GitHub Actions bot identity, emits `changed` | shell syntax coverage; exercised by publish workflow | `homebrew-actions` |
+| Tap push convergence | `.github/workflows/scripts/push-formula.sh` | pushes HEAD to tap branch; on failure fetches/rebases and retries a bounded number of times | shell syntax coverage; publishing path uses it | **split required**: `homebrew-actions` owns publisher convergence; `homebrew-tap` keeps a tap-local maintenance push implementation |
+| Consumer dependency-update policy | `.github/workflows/auto-merge-homebrew-tap.yml`, `.github/workflows/scripts/authorize-homebrew-tap-update.py`, `.github/workflows/scripts/reconcile-homebrew-tap-policy.sh` | current `pull_request_target` reusable workflow marks policy status, validates Dependabot metadata/commits/files and approved automation SHA, then enables/disables squash auto-merge | `test/publishing-base.py` policy regression cases | `homebrew-actions`; redesigned as read-only PR validation plus trusted `workflow_run` / `update-policy.yml`, not copied verbatim |
+| Automation release publishing | `.github/workflows/publish-automation-release.yml` | on automation-path changes to `main`, creates immutable `automation-v1.<run_number>.0` GitHub Release targeting exact workflow commit and re-verifies SHA/immutable flag | `publishing-base.py`; existing `automation-v*` releases | `homebrew-actions` owns its release orchestration; generic release lifecycle may consume `release-actions` once available |
+| Deploy-key provisioning | `scripts/setup-deploy-key.sh` | creates write deploy key in tap, stores private key as `HOMEBREW_TAP_DEPLOY_KEY` (or configured name) in source repository, supports safe replacement/cleanup | argument rejection in `test.yml`; shell syntax coverage | `homebrew-actions` operator tooling |
+
+### Tap-local maintenance that must remain
+
+| Responsibility | Current path(s) | Current contract / side effects | Current evidence | Target owner |
+| --- | --- | --- | --- | --- |
+| Formula deletion workflow | `.github/workflows/delete-formula.yml` | manual dispatch; validates requested Formula, commits deletion, pushes tap unless dry-run | deletion success/invalid-name tests in `test.yml` | `homebrew-tap` |
+| Formula deletion implementation | `.github/workflows/scripts/delete-formula.sh` | validates Formula name and dry-run flag, requires existing Formula, performs `git rm` + commit or reports dry-run | `test.yml` | `homebrew-tap` |
+| Tap dependency updates | `.github/dependabot.yml` | weekly GitHub Actions dependency updates for workflows remaining in the tap | repository config | `homebrew-tap`; contents may shrink after extraction |
+| Tap Formula state | `Formula/**` | published Homebrew Formula state | tap CI / Homebrew usage | `homebrew-tap` |
+
+The Formula deletion workflow currently calls the same `push-formula.sh` used by
+publisher writes. That shared file is a concrete extraction dependency: Phase 5 cannot
+remove it until tap-local deletion has its own retained push implementation.
+
+### Tests and fixture surface
+
+| Current path | What it covers now | Migration result |
+| --- | --- | --- |
+| `.github/workflows/test.yml` | mixed publisher + tap-local test workflow: GitHub Release E2E, shell syntax, generator regression, source validation, deploy-key option validation, Formula rendering/audit, delete Formula behavior, publish dry-run | split: publisher checks move to `homebrew-actions`; delete/tap-only checks stay or are rebuilt in `homebrew-tap` |
+| `.github/workflows/scripts/add-formula-spec-fixture.sh` | copies source Formula fixture into checked-out source for tests | `homebrew-actions` test support or retire if replaced by external fixture layout |
+| `test/formula-generator.py` | local generator unit/regression tests with fake GitHub API/download behavior, source and GitHub Release distributions, invalid release/spec cases | `homebrew-actions` |
+| `test/publishing-base.py` | workflow structure, pinned action refs, validation wiring, update-policy authorization/reconciliation, automation release invariants | `homebrew-actions`; tap-local assertions removed/split |
+| `test/fixtures/source/.github/homebrew/formula.yml` | rich source-distribution Formula fixture | `homebrew-actions` unit/integration fixture |
+| `test/fixtures/e2e/formula.yml` | simple end-to-end Formula fixture used by dry-run workflow | `homebrew-actions` local fixture or external source fixture |
+| `formula-fixture-v1.0.0` release/tag and orphan source commit | real immutable GitHub Release assets used by `github-release-e2e` | retire from `homebrew-tap`; replacement E2E lives outside automation tag namespaces |
+
+### Configuration and documentation split
+
+| Current path | Current coupling | Target |
+| --- | --- | --- |
+| `.github/actionlint.yaml` | suppresses `job.workflow_repository` / `job.workflow_sha` typing warnings specifically for the two reusable workflows | corresponding config moves to `homebrew-actions`; remove from tap if no remaining exception requires it |
+| `README.md` | combines tap usage/maintenance, deploy-key setup, Formula spec contract, reusable publishing workflows, update policy, and low-level action docs | tap installation/maintenance remains; publisher/spec/workflow/operator docs move to `homebrew-actions` |
+| `.github/dependabot.yml` | updates all GitHub Actions in this repository | remains tap-local and naturally stops tracking removed publisher workflow dependencies |
+
+### P0-02 ownership conclusions
+
+- The reusable publish pipeline, Formula renderer/resolver, validation, tap publish
+  convergence, deploy-key provisioning, and dependency-update policy belong to
+  `homebrew-actions`.
+- Generic GitHub Release lifecycle logic does not become a Homebrew responsibility;
+  `homebrew-actions` may later consume `release-actions` for its own product release.
+- Formula deletion and tap-state maintenance remain in `homebrew-tap`.
+- `push-formula.sh` and `test.yml` are the two explicit mixed-responsibility
+  boundaries that must be split before publisher removal.
+- Current GitHub Release fixture infrastructure is test-only and must leave the
+  `homebrew-tap` tag/release namespace when replacement integration coverage exists.
