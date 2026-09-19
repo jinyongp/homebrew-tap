@@ -140,8 +140,8 @@ remove it until tap-local deletion has its own retained push implementation.
 - The reusable publish pipeline, Formula renderer/resolver, validation, tap publish
   convergence, deploy-key provisioning, and dependency-update policy belong to
   `homebrew-actions`.
-- Generic GitHub Release lifecycle logic does not become a Homebrew responsibility;
-  `homebrew-actions` may later consume `release-actions` for its own product release.
+- Generic GitHub Release lifecycle logic does not become a Homebrew responsibility.
+  Phase 2 has no implementation or release dependency on `release-actions`.
 - Formula deletion and tap-state maintenance remain in `homebrew-tap`.
 - `push-formula.sh` and `test.yml` are the two explicit mixed-responsibility
   boundaries that must be split before publisher removal.
@@ -750,7 +750,7 @@ responsibility has one target owner or an explicit retirement outcome.
 | Homebrew Formula metadata and product install/test intent | each consumer `.github/homebrew/formula.yml` | product repository | declarative Formula spec | unchanged / Phase 3/4 contract migration | existing spec/generator baseline | source repo continues to own package intent | none |
 | PR/spec Homebrew orchestration | `homebrew-tap/.github/workflows/publish-formula.yml` dry-run/spec mode | `homebrew-actions` | `.github/workflows/check.yml@<full-sha>` | Phase 2 then 3/4 | caller `contents: read`; no tap secret | devtools adds missing dedicated check; openapi/Gate migrate existing checks | new check workflow passes without write credential |
 | Release-time Homebrew orchestration | same reusable `publish-formula.yml` | `homebrew-actions` | `.github/workflows/publish.yml@<full-sha>` | Phase 2 then 3/4 | full generator/native validation baseline; exactly one tap-write credential | all consumers change reusable-workflow dependency | non-production tap fixture publish + rerun acceptance |
-| Formula parser/renderer and output matrix | `actions/publish/formula/action.yml`, `generate.sh` | `homebrew-actions` | internal action/implementation called by check/publish workflows; optional low-level public action only if retained deliberately | Phase 2 | `formula-generator.py`, remote generator CI, native E2E | no direct live external action consumer found | equivalent regression coverage passes |
+| Formula parser/renderer and output matrix | `actions/publish/formula/action.yml`, `generate.sh` | `homebrew-actions` | internal action/implementation called by the public check/publish workflows; no separate low-level public root action in the initial contract | Phase 2 | `formula-generator.py`, remote generator CI, native E2E | no direct live external action consumer found | equivalent regression coverage passes |
 | Caller source/ref/version resolution | `resolve-source-inputs.sh` + reusable workflow inputs | `homebrew-actions` | caller-is-source contract; check uses event revision, publish requires full source SHA + explicit version | Phase 2 | current invalid-input tests inform narrowed contract | openapi drops redundant repository input; others align | new public inputs validated in contract tests |
 | Source archive / GitHub Release distribution resolution, checksums and provenance | `generate.sh` | `homebrew-actions` | Formula distribution resolver | Phase 2 | source and release generator tests; four-target Gate/fixture behavior | only Gate requires release-assets ordering | source + release fixture acceptance |
 | Formula audit/install/test implementation | `validate-formula.sh` and reusable validation matrix | `homebrew-actions` | internal validation jobs behind check/publish | Phase 2 | strict audit + native runner baseline; caller read permissions | stable check name/contract must be migrated in rulesets later without gap | check/publish integration green |
@@ -759,7 +759,7 @@ responsibility has one target owner or an explicit retirement outcome.
 | Publisher tap push/rebase/retry | shared `push-formula.sh` | `homebrew-actions` | internal publish convergence | Phase 2 | tap deploy key/token; add deterministic first-push failure retry test | none | separate tap-local deletion push path exists |
 | Tap-local deletion push/retry | same shared `push-formula.sh` called by `delete-formula.yml` | `homebrew-tap` | tap-local maintenance implementation | Phase 5 preparation | repository `GITHUB_TOKEN contents: write`; preserve no-force bounded convergence | none | must exist before old shared publisher script removal |
 | Deploy-key provisioning | `scripts/setup-deploy-key.sh` | `homebrew-actions` | operator setup tooling | Phase 2 | authenticated `gh` operator; secret value never stored in repo | consumer setup docs move | new tooling tested and documented |
-| Dependency-update authorization and auto-merge reconciliation | `auto-merge-homebrew-tap.yml`, authorize/reconcile scripts | `homebrew-actions` | `update-policy.yml@<sha>` called by consumer-owned trusted `workflow_run` wrapper | Phase 2 then 3/4 | consumer PR/status/merge permissions; no tap secret; API-only PR evidence | devtools/openapi replace `pull_request_target`; Gate adopts only if needed | malicious/unrelated-update tests + trusted wrapper acceptance |
+| Dependency-update authorization and auto-merge reconciliation | `auto-merge-homebrew-tap.yml`, authorize/reconcile scripts | `homebrew-actions` | `update-policy.yml@<sha>` called by consumer-owned trusted `workflow_run` wrapper | Phase 2 then 3/4 | consumer PR/status/merge permissions; no tap secret; API-only PR evidence | devtools/openapi replace `pull_request_target`; Gate receives no new auto-merge wrapper because none exists today | malicious/unrelated-update tests + trusted wrapper acceptance |
 | Homebrew automation product versioning/release | `publish-automation-release.yml`, `automation-v*` in tap | `homebrew-actions` | single `vX.Y.Z` immutable release family | Phase 2 | automation release contents-write permission in new repo | consumers update dependency namespace | first `homebrew-actions` release passes external fixture acceptance |
 | Generic release automation product versioning | not yet centralized | `release-actions` | single `vX.Y.Z` immutable release family | Phase 1 | release repo own release permission | consumers pin root action SHA | first release-actions release accepted |
 | Published Formula state | `homebrew-tap/Formula/**` | `homebrew-tap` | Homebrew tap repository state | unchanged | tap Formula CI | no conceptual change | never extracted |
@@ -820,3 +820,52 @@ No Homebrew contract calls `release-actions` to create a product release.
 - Phase 1 and Phase 2 can start independently after the Phase 0 gate.
 - Consumer migration can be incremental and channel-specific rather than requiring a
   coordinated all-repository cutover.
+
+
+## P0-10 — Phase 0 gate
+
+### Gate evidence
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| Repeatable consumer scan | pass | repeated authenticated GitHub code search for the two reusable workflows and lower-level action returned the same live consumer set/classification as P0-01: devtools, openapi-sdkgen, Gate; no external direct lower-level action consumer |
+| Inventory completeness | pass | P0-01 through P0-09 sections and conclusions are present; no `TODO`, `TBD`, `FIXME`, or open-decision marker remains |
+| Automation surface classification | pass | P0-02 maps publisher, policy, release, deploy-key, fixture, tap-local deletion, configuration, docs, and mixed push/test boundaries |
+| Homebrew behavioral baseline | pass with recorded gaps | local `python3 test/publishing-base.py` passes again; latest baseline GitHub run remains the recorded green native/E2E evidence; local Ruby/executable-policy and deterministic retry/no-change gaps remain explicitly documented |
+| Consumer contracts | pass | all three live consumers have Formula type, PR/release path, immutable inputs, credential mode, updater behavior, and migration-specific constraints |
+| GitHub Release lifecycle boundary | pass | shared provenance/state/create/verify/idempotency primitives are separated from product build/trigger/artifact/changelog policy |
+| Credential/trust inventory | pass | all write operations have credential classes and repository targets; common secret-value pattern scan returns no matches |
+| Original updater bug | pass | repeated `actions-up --dry-run --json`: devtools still gets 2 updates to `formula-fixture-v1.0.0` / `a19bd5...`; openapi-sdkgen reports 0 updates |
+| Candidate path validation | pass | `a19bd5...` has no `.github/workflows` tree; `automation-v1.5.0` commit `5d469435...` contains both reusable workflow paths |
+| Recovery/rollback mapping | pass | validation failures, no-change publish, tap races/rebase conflicts, release reruns/mismatches, update-policy failures, deletion, and consumer pin rollback are classified |
+| Ownership consistency | pass | P0-09 assigns one primary owner/outcome per responsibility and shows no implementation dependency cycle between `release-actions` and `homebrew-actions` |
+| Phase 0 mutation boundary | pass | `git diff --name-status origin/main..HEAD` contains only the two documentation artifacts; no code, workflow, repository setting, tag/release, secret, or consumer repository was modified by Phase 0 |
+| Commit granularity | pass | architecture preparation plus P0-01 through P0-09 are separate verified documentation commits; P0-10 is the final gate work unit |
+
+### Final architecture decisions closed by the gate
+
+The final review removed three residual implementation ambiguities:
+
+1. `homebrew-actions` initially exposes only the reusable workflow contracts
+   `check.yml`, `publish.yml`, and `update-policy.yml`. Its Formula
+   parser/renderer may remain an internal composite action, but it is not a separate
+   public root-action API because P0-01 found no live direct consumer requiring one.
+2. `homebrew-actions` has no Phase 2 dependency on `release-actions`, including for
+   its own release process. The products remain independently buildable and releasable.
+3. Gate does not gain a Homebrew dependency auto-merge wrapper during migration because
+   none exists in its current contract. Migration preserves behavior rather than adding
+   new policy.
+
+### Phase 0 result
+
+Phase 0 passes.
+
+The implementation entry points are now unblocked:
+
+- **Phase 1:** create `release-actions` from the verified shared GitHub Release
+  lifecycle boundary.
+- **Phase 2:** create `homebrew-actions` from the verified Homebrew automation
+  boundary.
+
+The phases may proceed independently. Destructive cleanup of the old tap-hosted
+automation remains blocked until consumer migration and acceptance complete.
