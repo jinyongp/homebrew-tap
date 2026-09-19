@@ -510,3 +510,148 @@ scripts, restore PR-produced caches, or execute PR-produced artifacts.
 - No new privilege is required for the planned `workflow_run` split: it reuses the
   consumer repository's pull-request/status write authority while keeping tap
   credentials out of that path.
+
+
+## P0-07 — Release/tag and dependency-updater baseline
+
+### Current `homebrew-tap` tag families
+
+| Tag | Commit |
+| --- | --- |
+| `automation-v1.1.0` | `115c331a731f71ac0269bb21ab222f1de425aa17` |
+| `automation-v1.2.0` | `7f734abd81f23640d9a25c07206057c560e9301e` |
+| `automation-v1.3.0` | `daea2d83b5b032f449a4998807d4949f9d9b480d` |
+| `automation-v1.4.0` | `dfe0050e6e8a3f6848c556ac9790ce34976cc64f` |
+| `automation-v1.5.0` | `5d4694353a9ed933fe0be9055ca64b7eef53e4f0` |
+| `formula-fixture-v1.0.0` | `a19bd5ad89bad940c642c0e9183c00c35f65e611` |
+
+A Git version sort places `formula-fixture-v1.0.0` ahead of the
+`automation-v*` family:
+
+```text
+formula-fixture-v1.0.0
+automation-v1.5.0
+automation-v1.4.0
+automation-v1.3.0
+automation-v1.2.0
+automation-v1.1.0
+```
+
+The fixture tag points at a parentless test commit whose tree contains no
+`.github/workflows` files.
+
+### Bad candidate path evidence
+
+Candidate selected in the reproduced updater failure:
+
+```text
+formula-fixture-v1.0.0
+a19bd5ad89bad940c642c0e9183c00c35f65e611
+```
+
+At that commit:
+
+```text
+.github/workflows/auto-merge-homebrew-tap.yml  -> absent
+.github/workflows/publish-formula.yml          -> absent
+```
+
+The commit itself is an orphan fixture commit:
+
+```text
+a19bd5ad89bad940c642c0e9183c00c35f65e611
+parents: none
+subject: test: add immutable formula release fixture
+```
+
+### Valid control revisions
+
+Both workflow paths exist at the historical consumer revision:
+
+```text
+5e298c2d25af8f85e1d95b403cbe59c98b9a0b2d
+  .github/workflows/auto-merge-homebrew-tap.yml
+  .github/workflows/publish-formula.yml
+```
+
+and at the latest automation release revision:
+
+```text
+5d4694353a9ed933fe0be9055ca64b7eef53e4f0  # automation-v1.5.0
+  .github/workflows/auto-merge-homebrew-tap.yml
+  .github/workflows/publish-formula.yml
+```
+
+This proves the breakage is not a missing-path condition in the intended automation
+family; it is selection of an unrelated repository tag family.
+
+### `actions-up` reproduction
+
+Observed tool:
+
+```text
+actions-up/1.20.0
+```
+
+On the current `devtools` checkout, which pins `5e298c2...` without adjacent
+automation version comments:
+
+```text
+actions-up --dry-run --json
+```
+
+returns two updates:
+
+| Consumer path | Dependency | Detected latest version | Target SHA |
+| --- | --- | --- | --- |
+| `.github/workflows/auto-merge-homebrew-tap.yml` | `jinyongp/homebrew-tap/.github/workflows/auto-merge-homebrew-tap.yml` | `formula-fixture-v1.0.0` | `a19bd5ad89bad940c642c0e9183c00c35f65e611` |
+| `.github/workflows/release.yml` | `jinyongp/homebrew-tap/.github/workflows/publish-formula.yml` | `formula-fixture-v1.0.0` | `a19bd5ad89bad940c642c0e9183c00c35f65e611` |
+
+The command reports `status: updates-available` and `totalUpdates: 2`.
+
+On `openapi-sdkgen`, whose executable Homebrew workflow references include the
+adjacent `# automation-v1.5.0` family comment, the same
+`actions-up --dry-run --json` reports:
+
+```text
+status: up-to-date
+totalUpdates: 0
+```
+
+This is the control case showing that current `actions-up` can preserve the intended
+tag family when the SHA pin carries family metadata, while an unannotated SHA pin
+remains vulnerable to the mixed repository tag namespace.
+
+Both commands were dry-run/report-only. Existing unrelated worktree changes in the
+consumer repositories were not touched or staged.
+
+### Current dependency-updater configuration
+
+- `devtools` and `openapi-sdkgen` explicitly group the two
+  `homebrew-tap` reusable workflows in Dependabot and exclude them from the generic
+  GitHub Actions group.
+- `devtools` executable refs lack adjacent automation-family comments.
+- `openapi-sdkgen` executable refs use `# automation-v1.5.0`.
+- Gate's current executable refs also use `# automation-v1.5.0`; P0-01 found no
+  current Homebrew auto-merge wrapper in Gate.
+
+### Post-migration regression target
+
+The final regression is structural rather than updater-specific:
+
+1. `homebrew-actions` exposes exactly its own `vX.Y.Z` release family;
+2. consumer executable refs use full commit SHAs with adjacent release comments;
+3. any updater-selected candidate SHA must contain the referenced
+   `.github/workflows/<contract>.yml` path;
+4. `release-actions` has its own independent single-product `vX.Y.Z` namespace;
+5. `homebrew-tap` is no longer an external Actions dependency provider, so its
+   historical tags cannot participate in Homebrew automation dependency resolution.
+
+### P0-07 conclusions
+
+- The original issue is reproduced with the currently installed `actions-up 1.20.0`.
+- The exact bad SHA and missing workflow paths are independently proven from Git.
+- A correct automation release SHA contains both reusable workflow paths.
+- Version-family comments mitigate the current updater behavior but are not the
+  architectural fix; moving reusable workflows to a single-product automation
+  repository removes the mixed tag namespace from dependency resolution.
