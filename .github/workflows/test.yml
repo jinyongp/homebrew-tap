@@ -10,6 +10,32 @@ permissions:
   contents: read
 
 jobs:
+  tap-maintenance:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Tap maintenance regression
+        run: python3 test/tap-maintenance.py
+      - name: Remaining tap script syntax
+        run: |
+          bash -n .github/workflows/scripts/delete-formula.sh
+          bash -n .github/workflows/scripts/push-tap-maintenance.sh
+      - name: Formula Ruby syntax
+        run: |
+          for formula in Formula/*.rb; do
+            ruby -c "$formula"
+          done
+      - name: Audit checked-in Formulae
+        run: |
+          set -euo pipefail
+          brew tap-new jinyongp/tap
+          cp Formula/*.rb "$(brew --repo jinyongp/tap)/Formula/"
+          for formula in Formula/*.rb; do
+            name="$(basename "$formula" .rb)"
+            brew audit --strict "jinyongp/tap/$name"
+          done
+
   github-release-e2e:
     uses: ./.github/workflows/publish-formula.yml
     with:
