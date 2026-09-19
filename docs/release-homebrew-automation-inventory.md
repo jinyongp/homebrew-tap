@@ -735,3 +735,88 @@ Phase 0 confirms the following remain blocked until replacement contracts are ac
   fail-closed and must remain so.
 - The migration can remain additive through consumer cutover; irreversible cleanup is
   not required to prove the new architecture.
+
+
+## P0-09 — Responsibility and migration matrix
+
+The following matrix is the canonical Phase 0 ownership map. Each primary
+responsibility has one target owner or an explicit retirement outcome.
+
+| Primary responsibility | Current owner / path | Target owner | Target contract | Migration phase | Baseline / permission impact | Consumer impact | Removal prerequisite |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Product release trigger, version/tag policy, build/test/package orchestration | each product repository release workflow and tooling | product repository | local workflow/tooling | Phase 3/4 consumer migration | preserve each product's existing release validation/build evidence; product release jobs retain caller-declared permissions | local workflow refactor only | shared lifecycle action proven against that product |
+| Shared GitHub Release state/provenance/create/verify/idempotency primitives | duplicated in devtools workflow, openapi workflow, Gate `internal/devtool/cirelease` | `release-actions` | root `jinyongp/release-actions@<full-sha>` | Phase 1 | caller release job grants `contents: write`; matching release no-op / mismatch reject | consumers replace shared inline lifecycle logic, not product builds | Phase 1 external fixture acceptance + immutable release |
+| Product-specific GitHub Release notes, artifact list, GoReleaser/package-channel behavior | product repositories | product repository | inputs/local orchestration around `release-actions` | Phase 3/4 | preserve current product-specific tests | none beyond local migration | never removed from product unless separately generalized |
+| Homebrew Formula metadata and product install/test intent | each consumer `.github/homebrew/formula.yml` | product repository | declarative Formula spec | unchanged / Phase 3/4 contract migration | existing spec/generator baseline | source repo continues to own package intent | none |
+| PR/spec Homebrew orchestration | `homebrew-tap/.github/workflows/publish-formula.yml` dry-run/spec mode | `homebrew-actions` | `.github/workflows/check.yml@<full-sha>` | Phase 2 then 3/4 | caller `contents: read`; no tap secret | devtools adds missing dedicated check; openapi/Gate migrate existing checks | new check workflow passes without write credential |
+| Release-time Homebrew orchestration | same reusable `publish-formula.yml` | `homebrew-actions` | `.github/workflows/publish.yml@<full-sha>` | Phase 2 then 3/4 | full generator/native validation baseline; exactly one tap-write credential | all consumers change reusable-workflow dependency | non-production tap fixture publish + rerun acceptance |
+| Formula parser/renderer and output matrix | `actions/publish/formula/action.yml`, `generate.sh` | `homebrew-actions` | internal action/implementation called by check/publish workflows; optional low-level public action only if retained deliberately | Phase 2 | `formula-generator.py`, remote generator CI, native E2E | no direct live external action consumer found | equivalent regression coverage passes |
+| Caller source/ref/version resolution | `resolve-source-inputs.sh` + reusable workflow inputs | `homebrew-actions` | caller-is-source contract; check uses event revision, publish requires full source SHA + explicit version | Phase 2 | current invalid-input tests inform narrowed contract | openapi drops redundant repository input; others align | new public inputs validated in contract tests |
+| Source archive / GitHub Release distribution resolution, checksums and provenance | `generate.sh` | `homebrew-actions` | Formula distribution resolver | Phase 2 | source and release generator tests; four-target Gate/fixture behavior | only Gate requires release-assets ordering | source + release fixture acceptance |
+| Formula audit/install/test implementation | `validate-formula.sh` and reusable validation matrix | `homebrew-actions` | internal validation jobs behind check/publish | Phase 2 | strict audit + native runner baseline; caller read permissions | stable check name/contract must be migrated in rulesets later without gap | check/publish integration green |
+| Stable Homebrew check aggregation | `require-formula-validation.sh`, `homebrew-check` job | `homebrew-actions` | stable check result from `check.yml` / `publish.yml` | Phase 2/3/4 | preserve fail-closed generate+validate result | consumer required-check context may change and must be observed before ruleset edits | new check run observed in each consumer |
+| Formula commit for publisher | `commit-formula.sh` | `homebrew-actions` | internal publish step | Phase 2 | preserve `changed=false` no-op and bot commit identity | none | isolated + fixture publish tests |
+| Publisher tap push/rebase/retry | shared `push-formula.sh` | `homebrew-actions` | internal publish convergence | Phase 2 | tap deploy key/token; add deterministic first-push failure retry test | none | separate tap-local deletion push path exists |
+| Tap-local deletion push/retry | same shared `push-formula.sh` called by `delete-formula.yml` | `homebrew-tap` | tap-local maintenance implementation | Phase 5 preparation | repository `GITHUB_TOKEN contents: write`; preserve no-force bounded convergence | none | must exist before old shared publisher script removal |
+| Deploy-key provisioning | `scripts/setup-deploy-key.sh` | `homebrew-actions` | operator setup tooling | Phase 2 | authenticated `gh` operator; secret value never stored in repo | consumer setup docs move | new tooling tested and documented |
+| Dependency-update authorization and auto-merge reconciliation | `auto-merge-homebrew-tap.yml`, authorize/reconcile scripts | `homebrew-actions` | `update-policy.yml@<sha>` called by consumer-owned trusted `workflow_run` wrapper | Phase 2 then 3/4 | consumer PR/status/merge permissions; no tap secret; API-only PR evidence | devtools/openapi replace `pull_request_target`; Gate adopts only if needed | malicious/unrelated-update tests + trusted wrapper acceptance |
+| Homebrew automation product versioning/release | `publish-automation-release.yml`, `automation-v*` in tap | `homebrew-actions` | single `vX.Y.Z` immutable release family | Phase 2 | automation release contents-write permission in new repo | consumers update dependency namespace | first `homebrew-actions` release passes external fixture acceptance |
+| Generic release automation product versioning | not yet centralized | `release-actions` | single `vX.Y.Z` immutable release family | Phase 1 | release repo own release permission | consumers pin root action SHA | first release-actions release accepted |
+| Published Formula state | `homebrew-tap/Formula/**` | `homebrew-tap` | Homebrew tap repository state | unchanged | tap Formula CI | no conceptual change | never extracted |
+| Formula deletion behavior | `delete-formula.yml`, `delete-formula.sh` | `homebrew-tap` | tap-local manual workflow | Phase 5 cleanup only | existing dry-run/invalid-input baseline | none | retained tap-local push implementation |
+| Tap-specific GitHub Actions dependency maintenance | `homebrew-tap/.github/dependabot.yml` | `homebrew-tap` | tap-local Dependabot config | Phase 5 cleanup | current config | none | publisher workflow dependencies removed |
+| Publisher unit/regression tests | `test/formula-generator.py`, publisher portions of `test/publishing-base.py`, publisher portions of `test.yml` | `homebrew-actions` | repository-local test suite | Phase 2 | P0-03 baseline + explicit gaps | none | equivalent/new checks green |
+| Tap-local tests | Formula deletion/tap-only portions of `test.yml` | `homebrew-tap` | tap-local CI | Phase 5 | deletion/tap validation baseline | none | test workflow split completed |
+| Real GitHub Release integration fixture | `formula-fixture-v1.0.0` in `homebrew-tap` | external source/release fixture | test-only repository/release, outside automation tag namespaces | Phase 1/2 setup | deterministic immutable assets; no production tap write | none | external replacement passes before old fixture becomes unused |
+| Real tap-write integration fixture | no dedicated repository today | external non-production tap fixture | test-only tap target | Phase 2 | dedicated write credential isolated from production tap | none | required before claiming real publish/no-op/retry acceptance |
+| Publisher documentation / Formula contract / setup guide | publisher sections of `homebrew-tap/README.md` | `homebrew-actions` | automation product docs | Phase 2/5 | examples must match new SHA-pinned contracts | consumer setup docs update | consumers migrated before old docs removed |
+| Tap installation/maintenance documentation | tap-specific portions of `homebrew-tap/README.md` | `homebrew-tap` | tap docs | Phase 5 | tap behavior only | none | documentation split |
+| Publisher-specific actionlint exceptions | `homebrew-tap/.github/actionlint.yaml` entries for reusable workflow contexts | `homebrew-actions` if still needed | automation repo lint config | Phase 2/5 | actionlint | none | publisher workflows removed from tap |
+| Gate workflow generator/tests encoding Homebrew pins | Gate `internal/devtool/devcmd/scripts.go` and workflow tests/docs | `gate` | product-owned generated workflow contract using new `homebrew-actions` SHA | Phase 4 Gate migration | Gate tests must stay generator/source-of-truth consistent | Gate migration includes generated and generator files together | new generated workflows/tests green |
+
+### Dependency order derived from the matrix
+
+Phase 1 and Phase 2 are independent after Phase 0:
+
+```text
+Phase 1 release-actions
+  -> may migrate shared product GitHub Release lifecycle when ready
+
+Phase 2 homebrew-actions
+  -> may migrate Homebrew check/publish/update policy when ready
+```
+
+Neither automation repository needs the other to implement its core contract.
+
+Consumer migration dependencies are narrower:
+
+- source-distribution consumers can migrate Homebrew as soon as `homebrew-actions` is
+  released, regardless of `release-actions` adoption;
+- Gate Homebrew migration also requires preserving the existing ordering after Gate's
+  release assets are published, but it does not require Gate to use `release-actions`
+  first;
+- product GitHub Release lifecycle migration can happen independently when
+  `release-actions` is accepted.
+
+### Ownership consistency check
+
+The matrix contains no responsibility whose primary target owner is both
+`release-actions` and `homebrew-actions`.
+
+The intentional interface between them is indirect:
+
+- `release-actions` may help a product produce a GitHub Release;
+- `homebrew-actions` may later read that already-existing GitHub Release when the
+  product Formula declares a GitHub Release distribution.
+
+No Homebrew contract calls `release-actions` to create a product release.
+
+### P0-09 conclusions
+
+- Every current automation responsibility identified in P0-02 through P0-08 has a
+  single target owner or a defined external-fixture/retirement outcome.
+- The mixed `push-formula.sh` and `test.yml` boundaries have explicit split
+  prerequisites, preventing Phase 5 from deleting tap-local dependencies.
+- Phase 1 and Phase 2 can start independently after the Phase 0 gate.
+- Consumer migration can be incremental and channel-specific rather than requiring a
+  coordinated all-repository cutover.
