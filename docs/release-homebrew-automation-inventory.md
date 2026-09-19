@@ -147,3 +147,81 @@ remove it until tap-local deletion has its own retained push implementation.
   boundaries that must be split before publisher removal.
 - Current GitHub Release fixture infrastructure is test-only and must leave the
   `homebrew-tap` tag/release namespace when replacement integration coverage exists.
+
+
+## P0-03 — Homebrew behavioral baseline
+
+### Baseline revision and environment
+
+Runtime code baseline:
+
+- remote `main`: `472cd536a53c5e3486eef9c1ea592ac23ab4f168`
+- local Phase 0 commits before this check modify documentation only, so automation code
+  under test is unchanged from that runtime baseline.
+- latest observed GitHub Actions `test.yml` run on that revision:
+  run `35344003624`, conclusion `success`, created 2026-09-18T12:18:55Z.
+
+Local Loki environment differences:
+
+- `python3 test/publishing-base.py` is runnable locally.
+- `python3 test/formula-generator.py` reaches `generate.sh` but the local execution
+  environment has no `ruby`; this is an environment/tooling failure, not a product
+  assertion failure.
+- direct local `bash -n` execution is blocked by the current Loki executable
+  allowlist. The same shell-syntax step passed in the referenced GitHub Actions run.
+
+### Baseline checks
+
+| Behavior | Check / evidence | Result | Baseline interpretation |
+| --- | --- | --- | --- |
+| Publisher structure and policy regression | local `python3 test/publishing-base.py` | pass; output: `Pinned-base conflict reproduced; current-main successive publishing passed` | workflow wiring, policy cases, commit/push scripts, and current-main successive Formula updates are covered by the existing regression |
+| Source and GitHub Release Formula generator regression | local `python3 test/formula-generator.py` | blocked locally: `ruby: command not found` | environment gap only; same test step passed in GitHub Actions run 35344003624 |
+| Shell syntax for generator, deploy-key tooling, and workflow scripts | local direct run | blocked by Loki executable policy | GitHub Actions run 35344003624 step `Shell syntax` passed |
+| Source-distribution Formula generation | `test.yml` fixture generation + `publish-dry-run / generate` | pass in run 35344003624 | current source Formula contract is green |
+| GitHub Release distribution generation | `test/formula-generator.py` and `github-release-e2e / generate` | pass in run 35344003624 | release metadata/digest/provenance generation path is green |
+| Ref/version normalization | `Generate tag ref version fixture`, `Generate explicit version fixture` and corresponding validation steps | pass in run 35344003624 | tag-style and explicit versions normalize as expected |
+| Invalid Formula/spec/source input rejection | invalid spec block plus invalid repository test | pass in run 35344003624 | representative malformed contract cases are rejected |
+| Deploy-key option validation | `Reject unknown deploy-key setup options` | pass in run 35344003624 | CLI rejects misspelled/unknown options before any credential mutation |
+| Formula syntax/stanza rendering | Ruby syntax and stanza grep checks | pass in run 35344003624 | representative rendered Formula is syntactically valid and includes expected stanzas |
+| Strict Homebrew audit | `Audit generated formula` and reusable validation | pass in run 35344003624 | generated Formula passes `brew audit --strict` |
+| PR/spec validation mode | `publish-dry-run` reusable workflow | pass; generate, macOS validation, and stable `homebrew-check` succeeded; publish job skipped | read-only check path is green and does not mutate tap |
+| Real GitHub Release native install/test | `github-release-e2e` | pass on `macos-arm64`, `macos-x86_64`, `linux-arm64`, `linux-x86_64`; stable `homebrew-check` succeeded | current release-asset Formula installs/tests on every declared native target |
+| Formula deletion validation | dry-run deletion + invalid-name rejection in `test` job | pass in run 35344003624 | tap-local deletion validation behavior is green without mutating remote tap |
+| Dependency-update authorization | policy cases inside local `publishing-base.py` | pass | approved SHA, full-SHA refs, metadata/files/commits and unrelated mutations are regression-tested |
+| Current-main successive Formula writes | temporary bare remote in `publishing-base.py` runs `commit-formula.sh` + `push-formula.sh` for versions 0.2.0 and 0.3.0 | pass locally | write scripts work against an isolated Git remote and preserve successive Formula state |
+
+### Current validation gaps
+
+These are existing coverage gaps, not Phase 0 failures:
+
+1. **Production tap mutation is not run by `test.yml`.**
+   Both reusable integration jobs use `dry-run: true`, so the remote
+   `homebrew-tap` publish job is intentionally skipped. Phase 0 does not introduce a
+   production write merely to close this gap.
+2. **Bounded push retry is not deterministically forced by the regression.**
+   `publishing-base.py` demonstrates why publishing from a stale pinned base conflicts
+   and proves successive writes from current `main`, but it does not inject a
+   non-fast-forward between `commit-formula.sh` and the first `git push` so that
+   `push-formula.sh` itself must execute its fetch/rebase retry branch.
+3. **No-change full publish is not an end-to-end regression.**
+   `commit-formula.sh` has an explicit `changed=false` path when the Formula has no
+   diff, but the current suite does not exercise a complete reusable publish rerun and
+   assert that the remote tap remains untouched.
+4. **Local Phase 0 environment cannot reproduce every CI check.**
+   Ruby/Homebrew-native checks are established from the successful GitHub Actions
+   baseline rather than the local Loki container.
+
+These gaps become explicit Phase 2 validation requirements rather than being treated as
+implicitly covered.
+
+### P0-03 conclusions
+
+- The current automation has a green remote CI baseline at runtime revision
+  `472cd536...`.
+- The real GitHub Release path has native install/test evidence on all four supported
+  OS/architecture targets.
+- The existing local regression provides deterministic policy and isolated Git write
+  evidence.
+- Phase 2 must add deterministic coverage for first-push non-fast-forward retry and
+  full no-change publish idempotency, and must use a non-production tap fixture for real
+  write acceptance.
