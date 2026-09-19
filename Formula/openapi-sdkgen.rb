@@ -1,9 +1,9 @@
 class OpenapiSdkgen < Formula
   desc "Generate application SDK source from OpenAPI documents"
   homepage "https://jinyongp.github.io/openapi-sdkgen/"
-  url "https://github.com/jinyongp/openapi-sdkgen/archive/cc124a8eb18feb638d94bf1ca3e617cc670e506f.tar.gz"
-  version "7.3.1"
-  sha256 "4d01d0bd0f22978ec05693942a8081f62027467c8b3b5c16f5cd29d8be50a864"
+  url "https://github.com/jinyongp/openapi-sdkgen/archive/3855b48450dec9f801ddd076ecdac2947f2f68a6.tar.gz"
+  version "8.0.0"
+  sha256 "3a8f115d2324bd091d82ed34652d180f823f782cf59199a146fc610ce602163b"
   license "Apache-2.0"
 
   depends_on "go" => :build
