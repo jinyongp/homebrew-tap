@@ -1,9 +1,11 @@
+# releaseway-version: 10.1.1
+# releaseway-source-commit: 6c349f9d098e175b242f49d3d28cefe6f2e3f731
 class OpenapiSdkgen < Formula
   desc "Generate application SDK source from OpenAPI documents"
   homepage "https://jinyongp.github.io/openapi-sdkgen/"
-  url "https://github.com/jinyongp/openapi-sdkgen/archive/13e088e69659906392357a78d87ca3743aa9a5f7.tar.gz"
-  version "10.1.0"
-  sha256 "ed1b687d43698265df53dd793548688ef18e62326f6c6c137b4c516d4a880447"
+  url "https://github.com/jinyongp/openapi-sdkgen/archive/6c349f9d098e175b242f49d3d28cefe6f2e3f731.tar.gz"
+  version "10.1.1"
+  sha256 "0e6bf07af2c3fb80968a62d8f8ec692d923623f8d2a8696d9e2253bf7e6fb6e3"
   license "Apache-2.0"
 
   depends_on "go" => :build
