@@ -1,11 +1,11 @@
-# releaseway-version: 0.25.3
-# releaseway-source-commit: d9d3ddd37b5f1e69f2528fe2562997fee67373b9
+# releaseway-version: 0.26.0
+# releaseway-source-commit: dc679a4560d3117d1171a13e9e370235723110df
 class Devtools < Formula
   desc "Agent-first developer environment and task management"
   homepage "https://github.com/jinyongp/devtools"
-  url "https://github.com/jinyongp/devtools/archive/d9d3ddd37b5f1e69f2528fe2562997fee67373b9.tar.gz"
-  version "0.25.3"
-  sha256 "a12b016558c8c94f4fa788650c9ab65974bf7d6fcdc44e3c6c6dc1bf33bc8806"
+  url "https://github.com/jinyongp/devtools/archive/dc679a4560d3117d1171a13e9e370235723110df.tar.gz"
+  version "0.26.0"
+  sha256 "b13f40a5834e4042338c7d32e106e7602d11553c9172d16eaa108cd8c613e025"
   license "MIT"
 
   depends_on "go" => :build
@@ -16,6 +16,17 @@ class Devtools < Formula
     ldflags = "-s -w -X main.version=#{version} -X github.com/jinyongp/devtools/internal/cli.updateManager=homebrew"
     system "go", "build", *std_go_args(ldflags: ldflags), "./cmd/devtools"
     generate_completions_from_executable(bin/"devtools", "completion")
+
+    unless (bin/"devtools").file?
+      odie "command_aliases.dvt: target devtools must be an installed executable"
+    end
+    unless (bin/"devtools").executable?
+      odie "command_aliases.dvt: target devtools must be an installed executable"
+    end
+    if (bin/"dvt").exist? || (bin/"dvt").symlink?
+      odie "command_aliases.dvt: destination already exists"
+    end
+    bin.install_symlink (bin/"devtools") => "dvt"
   end
 
   test do
@@ -23,6 +34,7 @@ class Devtools < Formula
     assert_path_exists zsh_completion/"_devtools"
     assert_path_exists fish_completion/"devtools.fish"
     assert_match version.to_s, shell_output("#{bin}/devtools version")
+    assert_match version.to_s, shell_output("#{bin}/dvt version")
     system bin/"devtools", "init", "--profile", "homebrew-test"
     system bin/"devtools", "var", "set", "LEVEL", "--value", "debug"
     assert_match "debug", shell_output("#{bin}/devtools var get LEVEL")
