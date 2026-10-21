@@ -1,11 +1,11 @@
-# releaseway-version: 1.3.0
-# releaseway-source-commit: 623dffd47029a8856d7b1cf4aade0c8dcdc77aac
+# releaseway-version: 1.3.1
+# releaseway-source-commit: 54723748893e32b8b46e2dec530629eb3fc3a8a3
 class OpenapiSdkgen < Formula
   desc "Generate application SDK source from OpenAPI documents"
   homepage "https://jinyongp.github.io/openapi-sdkgen/"
-  url "https://github.com/jinyongp/openapi-sdkgen/archive/623dffd47029a8856d7b1cf4aade0c8dcdc77aac.tar.gz"
-  version "1.3.0"
-  sha256 "79b7265329ae0c622b588b70ac5db55486eb106f9608eb7d4dffb1a515e12854"
+  url "https://github.com/jinyongp/openapi-sdkgen/archive/54723748893e32b8b46e2dec530629eb3fc3a8a3.tar.gz"
+  version "1.3.1"
+  sha256 "b4c09ec75589af3a045e90063b0199a8133cba963d7c2115fb7e1ec462caf1c8"
   license "Apache-2.0"
   version_scheme 1
 
