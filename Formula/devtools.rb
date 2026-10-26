@@ -1,11 +1,11 @@
-# releaseway-version: 0.35.0
-# releaseway-source-commit: b73a13f84bbe58b638e9ce7042a9eecc044d9483
+# releaseway-version: 0.35.1
+# releaseway-source-commit: e24ac806d7ede22cdab4dfe0d4b63067e3e66a24
 class Devtools < Formula
   desc "Agent-first developer environment and task management"
   homepage "https://github.com/jinyongp/devtools"
-  url "https://github.com/jinyongp/devtools/archive/b73a13f84bbe58b638e9ce7042a9eecc044d9483.tar.gz"
-  version "0.35.0"
-  sha256 "18cd371505c7058c86d352b26796d94e60d8e1d8915146bb5e5d883437989c62"
+  url "https://github.com/jinyongp/devtools/archive/e24ac806d7ede22cdab4dfe0d4b63067e3e66a24.tar.gz"
+  version "0.35.1"
+  sha256 "25b9f383c3dbaa0238f2d1abfd6d8633a292d539cdaa4b82097623aaa1b858b0"
   license "MIT"
 
   depends_on "go" => :build
