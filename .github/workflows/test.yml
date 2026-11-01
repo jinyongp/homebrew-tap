@@ -33,5 +33,6 @@ jobs:
           cp Formula/*.rb "$(brew --repo jinyongp/tap)/Formula/"
           for formula in Formula/*.rb; do
             name="$(basename "$formula" .rb)"
+            brew trust --formula "jinyongp/tap/$name"
             brew audit --strict "jinyongp/tap/$name"
           done
